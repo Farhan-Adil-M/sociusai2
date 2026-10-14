@@ -132,29 +132,42 @@ export async function resolveLevel(db, { userId, topic, level = null } = {}) {
 
 const STREAK_TO_SHIFT = 2;
 
-function clampLevel(level) {
-  const value = Number(level);
-  if (!Number.isFinite(value)) return MIN_LEVEL;
-  return Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, Math.round(value)));
-}
+// ---------- the in-session level run (shared by the write and the replay) ----
 
 /**
  * Replay one session's graded answers and report how the level moved.
  *
- * @param {{startLevel: number, practiceDifficulty: string, outcomes: boolean[]}} options
+ * `startLevel` is recovered from the practice difficulty stored on the quiz's
+ * `quizzes` row (easy|medium|hard), read from the frozen LEVELS table so the
+ * easy→1 / medium→3 / hard→4 mapping has exactly one source.
+ *
+ * KNOWN LIMITATION (filed in docs/HANDOFF.md): the `quizzes` row stores only the
+ * three-word practice difficulty, and BOTH level 1 and level 2 practise "easy".
+ * An easy quiz therefore starts its in-session run at level 1, the low end of
+ * the band the stored row can prove — the rule still moves correctly from
+ * there, but the first step is one level below a level-2 quiz's true start.
+ * A `level` column on `quizzes` (schema v9) would remove the ambiguity; the
+ * band itself is never wrong, because it comes from the stored row.
+ *
  * @returns {{startLevel: number, practiceDifficulty: string, streakToShift: number,
  *   finalLevel: number,
  *   steps: Array<{index:number, correct:boolean, levelBefore:number, levelAfter:number}>}}
- *   `startLevel` is the level the session began at and `finalLevel` is the level
- *   the next question in the session would be served at, which the client can
- *   pin on the next `POST /adaptive/generate`.
+ *   `finalLevel` is the level the next question in the session would be served
+ *   at, which the client can pin on the next `POST /adaptive/generate`.
  */
-function sessionAdaptation({ startLevel, practiceDifficulty, outcomes = [] }) {
-  let level = clampLevel(startLevel);
+function adaptationFor(quiz, perQuestion) {
+  const match = Object.keys(LEVELS).find((key) => LEVELS[key].difficulty === quiz.difficulty);
+  const served = match === undefined ? 3 : Number(match);
+  // Clamp the start to 1–4; a non-numeric start (a corrupt row) falls to the floor.
+  const startValue = Number(served);
+  const startLevel = Number.isFinite(startValue)
+    ? Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, Math.round(startValue)))
+    : MIN_LEVEL;
+  let level = startLevel;
   let runCorrect = 0;
   let runWrong = 0;
-  const steps = (Array.isArray(outcomes) ? outcomes : []).map((outcome, index) => {
-    const correct = outcome === true;
+  const steps = perQuestion.map((question, index) => {
+    const correct = question.correct === true;
     const levelBefore = level;
     if (correct) {
       runCorrect += 1;
@@ -175,30 +188,50 @@ function sessionAdaptation({ startLevel, practiceDifficulty, outcomes = [] }) {
     return { index, correct, levelBefore, levelAfter: level };
   });
   return {
-    startLevel: clampLevel(startLevel),
-    practiceDifficulty: practiceDifficulty ?? null,
+    startLevel,
+    practiceDifficulty: quiz.difficulty ?? null,
     streakToShift: STREAK_TO_SHIFT,
     steps,
     finalLevel: level,
   };
 }
 
+// ---------- one adaptive attempt (shared by the write and the replay) -------
+
+async function loadQuizQuestions(db, quizId) {
+  return db.all('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY idx', quizId);
+}
+
+// Whole-percent score — the same rounding every quiz endpoint reports.
+function percentOf(correct, total) {
+  return Math.round((correct / total) * 100);
+}
+
 /**
- * The level a quiz was served at, recovered from the practice difficulty stored
- * on its `quizzes` row (easy|medium|hard). Read from the frozen LEVELS table so
- * the easy→1 / medium→3 / hard→4 mapping has exactly one source.
- *
- * KNOWN LIMITATION (filed in docs/HANDOFF.md): the `quizzes` row stores only the
- * three-word practice difficulty, and BOTH level 1 and level 2 practise "easy".
- * An easy quiz therefore starts its in-session run at level 1, the low end of
- * the band the stored row can prove — the rule still moves correctly from
- * there, but the first step is one level below a level-2 quiz's true start.
- * A `level` column on `quizzes` (schema v9) would remove the ambiguity; the
- * band itself is never wrong, because it comes from the stored row.
+ * Observed evidence for one graded attempt (server-side only; never read by the
+ * level maths as history). `masteryBefore` null means the very first attempt.
  */
-function levelForPracticeDifficulty(difficulty) {
-  const match = Object.keys(LEVELS).find((key) => LEVELS[key].difficulty === difficulty);
-  return match === undefined ? 3 : Number(match);
+async function recordAttemptEvidence(db, {
+  topicKey, userId, quizId, perQuestion, correct, total, percent, masteryBefore, masteryAfter,
+}) {
+  for (const item of perQuestion) {
+    await recordEvent(db, {
+      kind: item.correct ? 'quiz_item_correct' : 'quiz_item_incorrect',
+      topic: topicKey,
+      detail: { index: item.index, correct: item.correct },
+      userId,
+    });
+  }
+  await recordEvent(db, {
+    kind: 'quiz_result',
+    topic: topicKey,
+    detail: { quizId, correct, total, masteryBefore, masteryAfter, percent },
+    userId,
+  });
+  // Recovery check (M5): mastery improved while an approach change is still open.
+  if (masteryBefore !== null) {
+    await maybeRecordRecovery(db, { topic: topicKey, masteryBefore, masteryAfter, userId });
+  }
 }
 
 // ---------- recording one attempt ------------------------------------------
@@ -217,10 +250,10 @@ function levelForPracticeDifficulty(difficulty) {
  *   attempt row so a resubmission replays it byte-identically.
  */
 export async function recordAdaptiveAttempt(db, { userId, quiz, answers }) {
-  const questions = await db.all('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY idx', quiz.id);
+  const questions = await loadQuizQuestions(db, quiz.id);
   // Deterministic grading — string comparison against the stored key, no AI.
   const { correct, total, perQuestion } = gradeAnswers(questions, answers);
-  const percent = Math.round((correct / total) * 100);
+  const percent = percentOf(correct, total);
 
   const topicKey = normalizeTopic(quiz.topic);
   const topicStats = await db.get('SELECT * FROM learner_topics WHERE topic = ? AND user_id = ?', topicKey, userId);
@@ -238,28 +271,11 @@ export async function recordAdaptiveAttempt(db, { userId, quiz, answers }) {
       last_practiced_at = excluded.last_practiced_at
   `, userId, stats.topic, stats.correct, stats.total, stats.difficulty, now, now);
 
-  // Observed evidence (server-side only; never read by the level maths as
-  // history). Per-question first, then the quiz-level result.
   const masteryAfter = Number(stats.mastery.toFixed(4));
-  for (const item of perQuestion) {
-    await recordEvent(db, {
-      kind: item.correct ? 'quiz_item_correct' : 'quiz_item_incorrect',
-      topic: topicKey,
-      detail: { index: item.index, correct: item.correct },
-      userId,
-    });
-  }
-  await recordEvent(db, {
-    kind: 'quiz_result',
-    topic: topicKey,
-    detail: { quizId: quiz.id, correct, total, masteryBefore: stats.before, masteryAfter, percent },
-    userId,
+  await recordAttemptEvidence(db, {
+    topicKey, userId, quizId: quiz.id, perQuestion, correct, total, percent,
+    masteryBefore: stats.before, masteryAfter,
   });
-  // Recovery check (M5): mastery improved while an approach change is still
-  // open. `before` null means the very first attempt — nothing to recover from.
-  if (stats.before !== null) {
-    await maybeRecordRecovery(db, { topic: topicKey, masteryBefore: stats.before, masteryAfter, userId });
-  }
 
   // The attempt row must exist before the level is recomputed: the learner
   // model reads its evidence through quiz_attempts → quizzes → quiz_questions.
@@ -288,11 +304,7 @@ export async function recordAdaptiveAttempt(db, { userId, quiz, answers }) {
     console.error(`[adaptive] level update failed for user ${userId} topic "${topicKey}":`, err?.message ?? err);
   }
 
-  const adaptation = sessionAdaptation({
-    startLevel: levelForPracticeDifficulty(quiz.difficulty),
-    practiceDifficulty: quiz.difficulty,
-    outcomes: perQuestion.map((question) => question.correct),
-  });
+  const adaptation = adaptationFor(quiz, perQuestion);
 
   const result = {
     score: { correct, total, percent },
@@ -335,7 +347,7 @@ export async function recordAdaptiveAttempt(db, { userId, quiz, answers }) {
  * `beforeLevel` / `masteryBefore` are reported as `null` rather than invented.
  */
 export async function replayAdaptiveResult(db, { quiz, answersJson, userId }) {
-  const questions = await db.all('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY idx', quiz.id);
+  const questions = await loadQuizQuestions(db, quiz.id);
   let answers = [];
   try {
     const parsed = JSON.parse(answersJson ?? '[]');
@@ -347,7 +359,7 @@ export async function replayAdaptiveResult(db, { quiz, answersJson, userId }) {
   const current = await getTopicMastery(db, { userId, topic: quiz.topic });
   const level = levelOf(current.mastery);
   return {
-    score: { correct, total, percent: Math.round((correct / total) * 100) },
+    score: { correct, total, percent: percentOf(correct, total) },
     questions: perQuestion,
     levelUpdate: {
       topic: current.topic,
@@ -357,15 +369,28 @@ export async function replayAdaptiveResult(db, { quiz, answersJson, userId }) {
       masteryAfter: round4(current.mastery),
     },
     recommendedLevel: level,
-    adaptation: sessionAdaptation({
-      startLevel: levelForPracticeDifficulty(quiz.difficulty),
-      practiceDifficulty: quiz.difficulty,
-      outcomes: perQuestion.map((question) => question.correct),
-    }),
+    adaptation: adaptationFor(quiz, perQuestion),
   };
 }
 
 // ---------- the read-only roll-up ------------------------------------------
+
+// One roll-up row: an assessed topic passes its measured values; an unassessed
+// one (a generated-but-unanswered quiz) passes nulls, so it is reported as level
+// `null` — never as level 1, which would count a measurement never taken.
+function topicEntry({ topic, masteryPercent, level, correct, total, lastPracticedAt }) {
+  return {
+    topic,
+    masteryPercent,
+    level,
+    levelLabel: levelLabel(level),
+    difficulty: level === null ? chooseDifficulty(null) : difficultyForLevel(level),
+    correct,
+    total,
+    needsRevision: total > 0 ? needsRevision({ correct, total }) : false,
+    lastPracticedAt,
+  };
+}
 
 /**
  * Per-topic mastery rolled up to a level — the `GET /api/adaptive/progress`
@@ -385,21 +410,17 @@ export async function adaptiveProgress(db, { userId }) {
   const statsByTopic = new Map(statsRows.map((row) => [row.topic, row]));
 
   const topics = summary.topics.map((item) => {
-    const level = levelOf(item.mastery);
     const stats = statsByTopic.get(item.topic);
     const correct = Number(stats?.correct) || 0;
     const total = Number(stats?.total) || 0;
-    return {
+    return topicEntry({
       topic: item.topic,
       masteryPercent: item.masteryPercent,
-      level,
-      levelLabel: levelLabel(level),
-      difficulty: difficultyForLevel(level),
+      level: levelOf(item.mastery),
       correct,
       total,
-      needsRevision: total > 0 ? needsRevision({ correct, total }) : false,
       lastPracticedAt: stats?.last_practiced_at ?? item.lastAssessedAt ?? null,
-    };
+    });
   });
 
   const seen = new Set(topics.map((entry) => entry.topic));
@@ -413,18 +434,9 @@ export async function adaptiveProgress(db, { userId }) {
     const key = normalizeTopic(row.topic);
     if (key === '' || seen.has(key)) continue;
     seen.add(key);
-    topics.push({
-      topic: key,
-      masteryPercent: null,
-      level: null,
-      levelLabel: levelLabel(null), // "unassessed"
-      // What POST /adaptive/generate will use when `level` is omitted for it.
-      difficulty: chooseDifficulty(null),
-      correct: 0,
-      total: 0,
-      needsRevision: false,
-      lastPracticedAt: null,
-    });
+    topics.push(topicEntry({
+      topic: key, masteryPercent: null, level: null, correct: 0, total: 0, lastPracticedAt: null,
+    }));
   }
 
   const attempts = await db.all('SELECT correct, total FROM quiz_attempts WHERE user_id = ?', userId);

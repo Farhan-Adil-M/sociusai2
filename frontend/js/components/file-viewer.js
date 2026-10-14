@@ -153,10 +153,6 @@ function loadingHtml() {
   </div></div>`;
 }
 
-function renderLoading() {
-  paint(loadingHtml());
-}
-
 /* ----------------------------------------------------------------- reader -- */
 
 function sizeLabelOf(document) {
@@ -299,18 +295,24 @@ function setTextSize(value) {
   announce(`Text size: ${entry.label}.`);
 }
 
+/** The [data-fv] control an event started on, or null when it was elsewhere. */
+function fvControl(event) {
+  const control = event.target.closest('[data-fv]');
+  return control && host.contains(control) ? control : null;
+}
+
 function wireReader() {
   host?.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-fv]');
-    if (!button || !host.contains(button)) return;
-    const action = button.dataset.fv;
+    const control = fvControl(event);
+    if (!control) return;
+    const action = control.dataset.fv;
     if (action === 'prev') goTo(state.page - 1);
     else if (action === 'next') goTo(state.page + 1);
   });
 
   host?.addEventListener('change', (event) => {
-    const control = event.target.closest('[data-fv]');
-    if (!control || !host.contains(control)) return;
+    const control = fvControl(event);
+    if (!control) return;
     if (control.dataset.fv === 'jump') goTo(Number(control.value));
     else if (control.dataset.fv === 'mode') setMode(control.value);
     else if (control.dataset.fv === 'size') setTextSize(control.value);
@@ -361,7 +363,7 @@ function renderNoSelection() {
 /* -------------------------------------------------------------------- boot */
 
 async function load(sourceId) {
-  renderLoading();
+  paint(loadingHtml());
   state.document = null;
   state.pages = [];
   state.page = 0;

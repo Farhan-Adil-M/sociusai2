@@ -13,6 +13,49 @@ const httpError = (code, message, status) => {
   return error;
 };
 
+const LETTERS = ['a', 'b', 'c', 'd'];
+const CHAT_MODEL = 'nvidia/nemotron-3.5-lightning-30b-a3b';
+
+/** Small pieces the routes below share. */
+const nowIso = () => new Date().toISOString();
+const demoId = (kind) => `${kind}_demo${Math.random().toString(36).slice(2, 8)}`;
+const countUnsorted = (list) => list.filter((item) => !item.sessionId).length;
+const sessionTitleOf = (sessionId) => (sessionById(sessionId) || {}).title || null;
+const activity = (type, topic, detail, daysAgo) => ({ type, topic, detail, at: iso(daysAgo) });
+
+/** A stored row by id, or the contract's 404. */
+function findById(list, id, code, message) {
+  const found = list.find((item) => item.id === id);
+  if (!found) throw httpError(code, message, 404);
+  return found;
+}
+
+const requireSource = (id) => findById(db.sources, id, 'SOURCE_NOT_FOUND', 'That study material no longer exists.');
+const requireSession = (id) => findById(db.sessions, id, 'SESSION_NOT_FOUND', 'That study session no longer exists.');
+const requireDeck = (id) => findById(db.decks, id, 'DECK_NOT_FOUND', 'That deck no longer exists.');
+
+/** `?sort=` for either list: alpha by title, active by last use, else newest first. */
+function sortRecords(list, sort, fields) {
+  const copy = list.slice();
+  if (sort === 'alpha') return copy.sort((a, b) => String(fields.title(a)).localeCompare(String(fields.title(b)), undefined, { sensitivity: 'base' }));
+  if (sort === 'active') return copy.sort((a, b) => String(fields.active(b) || '').localeCompare(String(fields.active(a) || '')));
+  return copy.sort((a, b) => String(fields.recent(b)).localeCompare(String(fields.recent(a))));
+}
+
+/** One stored deck card: the fixture card's fields plus its review state. */
+const deckCardRow = (stateOf) => (card, idx) => ({
+  idx, front: card.front, back: card.back, citations: card.citations, ...stateOf(idx),
+});
+
+/** The topic two AI routes share: 2–80 trimmed characters, one message. */
+function topicFrom(body) {
+  const topic = (body.topic || '').trim();
+  if (topic.length < 2 || topic.length > 80) {
+    throw httpError('VALIDATION_ERROR', 'Topic must be between 2 and 80 characters.', 400);
+  }
+  return topic;
+}
+
 /* ------------------------------------------------------------- fixtures */
 
 const SOURCES = [
@@ -41,7 +84,7 @@ const db = {
   suggestions: new Map(), // sourceId → suggestion (stored server-side, like the real backend)
   // v1.4 singleton learner profile — one per installation, resets with this
   // demo database when the page reloads (same lifecycle as sessions/decks).
-  profile: { state: 'new', purpose: null, interests: [], goals: [], preferences: {}, subjects: [], updatedAt: null },
+  profile: freshProfile(),
 };
 
 const CATEGORY_VALUES = ['subject', 'research', 'self-study', 'exam-prep', 'general'];
@@ -59,13 +102,6 @@ function sessionWithCounts(session) {
       .sort()
       .pop() || null,
   };
-}
-
-function sortSessions(list, sort) {
-  const copy = list.slice();
-  if (sort === 'alpha') return copy.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
-  if (sort === 'active') return copy.sort((a, b) => String(b.lastActivityAt || '').localeCompare(String(a.lastActivityAt || '')));
-  return copy.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 }
 
 /** Throw SESSION_EMPTY when a session-scoped AI call has no material. */
@@ -99,7 +135,7 @@ const PHOTOSYNTHESIS_ANSWER = {
     citation(),
     citation({ sourceId: 'src_demo02', type: 'pptx', title: 'lecture-04-cells.pptx', location: { slide: 9 }, excerpt: 'The thylakoid membrane hosts photosystem II and photosystem I; the stroma hosts the Calvin cycle enzymes.', score: 0.76 }),
   ],
-  model: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+  model: CHAT_MODEL,
   needsContent: false,
 };
 
@@ -115,7 +151,7 @@ const MITOSIS_ANSWER = {
 const ABSTAIN_ANSWER = {
   answer: "I couldn't find enough in your study materials to answer that. Try adding material on this topic, or ask about a topic covered in your sources.",
   citations: [],
-  model: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+  model: CHAT_MODEL,
   needsContent: true,
 };
 
@@ -182,9 +218,7 @@ const QUIZ_QUESTIONS = [
 ];
 
 function choiceSet(correct, b, c, d) {
-  const shuffled = [correct, b, c, d];
-  const letters = ['a', 'b', 'c', 'd'];
-  return shuffled.map((text, i) => ({ id: letters[i], text }));
+  return [correct, b, c, d].map((text, i) => ({ id: LETTERS[i], text }));
 }
 
 // Index → the id of the correct choice. Deterministic grading in the fixture,
@@ -213,23 +247,22 @@ const PROGRESS = {
   overall: { quizzesTaken: 3, questionsAnswered: 15, accuracyPercent: 60 },
   suggestedNext: { topic: 'Cell division', difficulty: 'easy' },
   recentActivity: [
-    { type: 'quiz', topic: 'Photosynthesis', detail: '3/5 correct (60%)', at: iso(-1) },
-    { type: 'question', topic: null, detail: 'Asked: Where do the light-dependent reactions take place?', at: iso(-1) },
-    { type: 'upload', topic: null, detail: 'biology-photosynthesis.pdf (14 pages)', at: iso(-2) },
-    { type: 'quiz', topic: 'Cell division', detail: '2/5 correct (40%)', at: iso(-3) },
-    { type: 'upload', topic: null, detail: 'lecture-04-cells.pptx (28 slides)', at: iso(-4) },
-    { type: 'quiz', topic: 'Cell respiration', detail: '4/5 correct (80%)', at: iso(-5) },
+    activity('quiz', 'Photosynthesis', '3/5 correct (60%)', -1),
+    activity('question', null, 'Asked: Where do the light-dependent reactions take place?', -1),
+    activity('upload', null, 'biology-photosynthesis.pdf (14 pages)', -2),
+    activity('quiz', 'Cell division', '2/5 correct (40%)', -3),
+    activity('upload', null, 'lecture-04-cells.pptx (28 slides)', -4),
+    activity('quiz', 'Cell respiration', '4/5 correct (80%)', -5),
   ],
 };
 
 // Seed deck cards (after FLASHCARD_CARDS is defined, since it is a const).
-db.deckCards.set('deck_demo01', FLASHCARD_CARDS.slice(0, 5).map((card, idx) => ({
-  idx, front: card.front, back: card.back, citations: card.citations,
-  status: idx < 3 ? 'known' : idx === 3 ? 'review' : 'new', reviewedAt: idx < 4 ? iso(-1) : null,
-})));
-db.deckCards.set('deck_demo02', FLASHCARD_CARDS.slice(3, 7).map((card, idx) => ({
-  idx, front: card.front, back: card.back, citations: card.citations, status: 'new', reviewedAt: null,
-})));
+db.deckCards.set('deck_demo01', FLASHCARD_CARDS.slice(0, 5).map(deckCardRow(
+  (idx) => ({ status: idx < 3 ? 'known' : idx === 3 ? 'review' : 'new', reviewedAt: idx < 4 ? iso(-1) : null }),
+)));
+db.deckCards.set('deck_demo02', FLASHCARD_CARDS.slice(3, 7).map(deckCardRow(
+  () => ({ status: 'new', reviewedAt: null }),
+)));
 
 /* ------------------------------------- learner profile & onboarding (v1.4) */
 
@@ -339,7 +372,7 @@ function onboardingMessage(body) {
 }
 
 function advanceInterview(message) {
-  db.profile.updatedAt = new Date().toISOString();
+  db.profile.updatedAt = nowIso();
   if (onboarding.turn === 0) {
     extractInterests(message);
     onboarding.turn = 1;
@@ -445,7 +478,7 @@ function patchProfile(body) {
 
   // Valid — replace each provided key wholesale, forcing source: "stated"
   // (any client-sent source field is ignored, per the contract).
-  db.profile.updatedAt = new Date().toISOString();
+  db.profile.updatedAt = nowIso();
   if (patch.interests !== undefined) {
     db.profile.interests = patch.interests.map((item) => ({ label: String(item.label).trim(), source: 'stated' }));
   }
@@ -480,6 +513,46 @@ function patchProfile(body) {
 const submittedQuizzes = new Map(); // quizId → stored result (409 on repeat)
 const generatedQuizzes = new Map(); // quizId → { topic, questions }
 
+/** v1.1: a generated deck is persisted (log + cards), like the real backend. */
+function persistDeck(topic, cards, sessionId) {
+  const parent = sessionId ? sessionById(sessionId) : null;
+  const deckId = demoId('deck');
+  db.decks.unshift({
+    id: deckId,
+    topic,
+    sessionId,
+    category: parent ? parent.category : null,
+    cardCount: cards.length,
+    knownCount: 0,
+    reviewCount: 0,
+    createdAt: nowIso(),
+    lastReviewedAt: null,
+  });
+  db.deckCards.set(deckId, cards.map(deckCardRow(() => ({ status: 'new', reviewedAt: null }))));
+  return deckId;
+}
+
+/** Deterministic grading of one attempt — a string comparison against the
+ *  stored key, exactly like the backend. */
+function gradeAttempt(generated, answers) {
+  let correct = 0;
+  const questions = generated.questions.map((question, index) => {
+    const yourChoiceId = answers[index].choiceId ?? null;
+    const correctChoiceId = correctIdFor(question);
+    const isCorrect = yourChoiceId === correctChoiceId;
+    if (isCorrect) correct += 1;
+    return {
+      index,
+      yourChoiceId,
+      correctChoiceId,
+      correct: isCorrect,
+      explanation: QUIZ_EXPLANATIONS[index],
+      citations: question.citations,
+    };
+  });
+  return { correct, questions };
+}
+
 export async function handleMock(path, { method = 'GET', body = {} } = {}) {
   await sleep(320);
   const [pathname, query = ''] = path.split('?');
@@ -492,7 +565,7 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
       checks: {
         sqlite: { ok: true, message: '' },
         chroma: { ok: true, message: '' },
-        nim: { ok: true, message: '', chatModel: 'nvidia/nemotron-3.5-lightning-30b-a3b', embeddingModel: 'nvidia/nemotron-3-embed-1b' },
+        nim: { ok: true, message: '', chatModel: CHAT_MODEL, embeddingModel: 'nvidia/nemotron-3-embed-1b' },
         limits: { maxUploadMb: 25 },
       },
     };
@@ -503,8 +576,7 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
     let list = db.sources;
     if (scope === 'unsorted') list = list.filter((source) => !source.sessionId);
     else if (scope) list = list.filter((source) => source.sessionId === scope);
-    const unsortedSourceCount = db.sources.filter((source) => !source.sessionId).length;
-    return { sources: list, unsortedSourceCount };
+    return { sources: list, unsortedSourceCount: countUnsorted(db.sources) };
   }
 
   if (route === 'GET /api/learner/progress') return PROGRESS;
@@ -520,7 +592,7 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
       throw httpError('ONBOARDING_COMPLETE', 'Onboarding already finished.', 409);
     }
     db.profile.state = 'skipped';
-    db.profile.updatedAt = new Date().toISOString();
+    db.profile.updatedAt = nowIso();
     onboarding.turn = 0;
     return { profile: profileView() };
   }
@@ -556,51 +628,28 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
   }
 
   if (route === 'POST /api/flashcards/generate') {
-    const topic = (body.topic || '').trim();
-    if (topic.length < 2 || topic.length > 80) {
-      throw httpError('VALIDATION_ERROR', 'Topic must be between 2 and 80 characters.', 400);
-    }
+    const topic = topicFrom(body);
     const count = body.count ?? 8;
     if (count < 3 || count > 12) {
       throw httpError('VALIDATION_ERROR', 'Count must be between 3 and 12.', 400);
     }
     if (body.sessionId) assertSessionHasSources(body.sessionId);
     await sleep(500);
-    const cards = FLASHCARD_CARDS.slice(0, count);
-
     // v1.1: the deck is persisted (cards + scope), like the real backend.
-    const deckId = `deck_demo${Math.random().toString(36).slice(2, 8)}`;
-    const parent = body.sessionId ? sessionById(body.sessionId) : null;
-    db.decks.unshift({
-      id: deckId,
-      topic,
-      sessionId: body.sessionId || null,
-      category: parent ? parent.category : null,
-      cardCount: cards.length,
-      knownCount: 0,
-      reviewCount: 0,
-      createdAt: new Date().toISOString(),
-      lastReviewedAt: null,
-    });
-    db.deckCards.set(deckId, cards.map((card, idx) => ({
-      idx, front: card.front, back: card.back, citations: card.citations, status: 'new', reviewedAt: null,
-    })));
-
+    const cards = FLASHCARD_CARDS.slice(0, count);
+    const deckId = persistDeck(topic, cards, body.sessionId || null);
     return { topic, cards, deckId, sessionId: body.sessionId || null, model: 'nvidia/nemotron-3-super-120b-a12b' };
   }
 
   if (route === 'POST /api/quiz/generate') {
-    const topic = (body.topic || '').trim();
-    if (topic.length < 2 || topic.length > 80) {
-      throw httpError('VALIDATION_ERROR', 'Topic must be between 2 and 80 characters.', 400);
-    }
+    const topic = topicFrom(body);
     const questionCount = body.questionCount ?? 5;
     if (questionCount < 3 || questionCount > 10) {
       throw httpError('VALIDATION_ERROR', 'questionCount must be between 3 and 10.', 400);
     }
     if (body.sessionId) assertSessionHasSources(body.sessionId);
     await sleep(600);
-    const quizId = `quiz_demo${Math.random().toString(36).slice(2, 8)}`;
+    const quizId = demoId('quiz');
     const questions = QUIZ_QUESTIONS.slice(0, questionCount);
     generatedQuizzes.set(quizId, { topic, questions });
     return {
@@ -628,14 +677,7 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
       throw httpError('VALIDATION_ERROR', 'Provide one answer per question, in order.', 400);
     }
 
-    let correct = 0;
-    const questions = generated.questions.map((question, index) => {
-      const yourChoiceId = answers[index].choiceId ?? null;
-      const correctChoiceId = correctIdFor(question);
-      const isCorrect = yourChoiceId === correctChoiceId;
-      if (isCorrect) correct += 1;
-      return { index, yourChoiceId, correctChoiceId, correct: isCorrect, explanation: QUIZ_EXPLANATIONS[index], citations: question.citations };
-    });
+    const { correct, questions } = gradeAttempt(generated, answers);
 
     const percent = Math.round((correct / total) * 100);
     const before = 0.6;
@@ -654,8 +696,7 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
 
   const sourceMatch = pathname.match(/^\/api\/sources\/([^/]+)$/);
   if (sourceMatch && method === 'PATCH') {
-    const source = db.sources.find((item) => item.id === sourceMatch[1]);
-    if (!source) throw httpError('SOURCE_NOT_FOUND', 'That study material no longer exists.', 404);
+    const source = requireSource(sourceMatch[1]);
     if (body.sessionId !== undefined && body.sessionId !== null && !sessionById(body.sessionId)) {
       throw httpError('SESSION_NOT_FOUND', 'That study session no longer exists.', 404);
     }
@@ -667,8 +708,7 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
 
   const suggMatch = pathname.match(/^\/api\/sources\/([^/]+)\/suggest-organization$/);
   if (suggMatch && method === 'POST') {
-    const source = db.sources.find((item) => item.id === suggMatch[1]);
-    if (!source) throw httpError('SOURCE_NOT_FOUND', 'That study material no longer exists.', 404);
+    const source = requireSource(suggMatch[1]);
     const active = db.sessions.filter((session) => session.status === 'active');
     const suggestion = active.length
       ? { matchSessionId: active[0].id, newSession: null, confidence: 'high',
@@ -682,16 +722,15 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
 
   const acceptMatch = pathname.match(/^\/api\/sources\/([^/]+)\/accept-suggestion$/);
   if (acceptMatch && method === 'POST') {
-    const source = db.sources.find((item) => item.id === acceptMatch[1]);
-    if (!source) throw httpError('SOURCE_NOT_FOUND', 'That study material no longer exists.', 404);
+    const source = requireSource(acceptMatch[1]);
     const suggestion = db.suggestions.get(source.id);
     if (!suggestion) throw httpError('VALIDATION_ERROR', 'No suggestion is stored for this material yet.', 400);
     let session = suggestion.matchSessionId ? sessionById(suggestion.matchSessionId) : null;
     if (!session && suggestion.newSession) {
       session = db.sessions.find((item) => item.title.toLowerCase() === suggestion.newSession.title.toLowerCase()) || null;
       if (!session) {
-        const now = new Date().toISOString();
-        session = { id: `ses_demo${Math.random().toString(36).slice(2, 8)}`, title: suggestion.newSession.title,
+        const now = nowIso();
+        session = { id: demoId('ses'), title: suggestion.newSession.title,
           category: suggestion.newSession.category, description: '', tags: suggestion.newSession.tags,
           status: 'active', createdAt: now, updatedAt: now };
         db.sessions.unshift(session);
@@ -708,15 +747,14 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
   const cardMatch = pathname.match(/^\/api\/decks\/([^/]+)\/cards\/(\d+)$/);
 
   if (cardMatch && method === 'PATCH') {
-    const deck = db.decks.find((item) => item.id === cardMatch[1]);
-    if (!deck) throw httpError('DECK_NOT_FOUND', 'That deck no longer exists.', 404);
+    const deck = requireDeck(cardMatch[1]);
     const cards = db.deckCards.get(deck.id) || [];
     const idx = Number(cardMatch[2]);
     const card = cards.find((item) => item.idx === idx);
     if (!card || !['new', 'known', 'review'].includes(body.status)) {
       throw httpError('VALIDATION_ERROR', 'Status must be new, known or review.', 400);
     }
-    const now = new Date().toISOString();
+    const now = nowIso();
     card.status = body.status;
     card.reviewedAt = now;
     deck.knownCount = cards.filter((item) => item.status === 'known').length;
@@ -726,10 +764,8 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
   }
 
   if (deckMatch && method === 'GET') {
-    const deck = db.decks.find((item) => item.id === deckMatch[1]);
-    if (!deck) throw httpError('DECK_NOT_FOUND', 'That deck no longer exists.', 404);
-    const parent = deck.sessionId ? sessionById(deck.sessionId) : null;
-    return { deck: { ...deck, sessionTitle: parent ? parent.title : null }, cards: db.deckCards.get(deck.id) || [] };
+    const deck = requireDeck(deckMatch[1]);
+    return { deck: { ...deck, sessionTitle: sessionTitleOf(deck.sessionId) }, cards: db.deckCards.get(deck.id) || [] };
   }
 
   if (deckMatch && method === 'DELETE') {
@@ -758,14 +794,9 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
       const parent = deck.sessionId ? sessionById(deck.sessionId) : null;
       return `${deck.topic} ${parent ? parent.title : ''}`.toLowerCase().includes(q);
     });
-    if (sort === 'alpha') list = list.slice().sort((a, b) => a.topic.localeCompare(b.topic, undefined, { sensitivity: 'base' }));
-    else if (sort === 'active') list = list.slice().sort((a, b) => String(b.lastReviewedAt || '').localeCompare(String(a.lastReviewedAt || '')));
-    else list = list.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-    const decks = list.map((deck) => ({
-      ...deck,
-      sessionTitle: deck.sessionId ? (sessionById(deck.sessionId) || {}).title || null : null,
-    }));
-    return { decks, unsortedDeckCount: db.decks.filter((deck) => !deck.sessionId).length };
+    list = sortRecords(list, sort, { title: (d) => d.topic, active: (d) => d.lastReviewedAt, recent: (d) => d.createdAt });
+    const decks = list.map((deck) => ({ ...deck, sessionTitle: sessionTitleOf(deck.sessionId) }));
+    return { decks, unsortedDeckCount: countUnsorted(db.decks) };
   }
 
   /* ------------------------------------------------ study sessions (v1.1) */
@@ -775,13 +806,13 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
     const category = qp.get('category') || '';
     const sort = qp.get('sort') || 'recent';
     const includeArchived = qp.get('includeArchived') === '1';
-    let list = db.sessions
+    const list = db.sessions
       .filter((session) => includeArchived || session.status === 'active')
       .filter((session) => !category || session.category === category)
       .filter((session) => !q || `${session.title} ${session.category} ${session.description} ${session.tags.join(' ')}`.toLowerCase().includes(q));
-    list = sortSessions(list.map(sessionWithCounts), sort);
-    const unsortedSourceCount = db.sources.filter((source) => !source.sessionId).length;
-    return { sessions: list, unsortedSourceCount };
+    const sorted = sortRecords(list.map(sessionWithCounts), sort,
+      { title: (s) => s.title, active: (s) => s.lastActivityAt, recent: (s) => s.updatedAt });
+    return { sessions: sorted, unsortedSourceCount: countUnsorted(db.sources) };
   }
 
   if (route === 'POST /api/sessions') {
@@ -797,9 +828,9 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
     if (tags.length > 8 || tags.some((tag) => tag.length > 24)) {
       throw httpError('VALIDATION_ERROR', 'Up to 8 tags, each 1–24 characters.', 400);
     }
-    const now = new Date().toISOString();
+    const now = nowIso();
     const session = {
-      id: `ses_demo${Math.random().toString(36).slice(2, 8)}`,
+      id: demoId('ses'),
       title,
       category,
       description: (body.description || '').trim(),
@@ -814,8 +845,7 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
 
   const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
   if (sessionMatch) {
-    const session = sessionById(sessionMatch[1]);
-    if (!session) throw httpError('SESSION_NOT_FOUND', 'That study session no longer exists.', 404);
+    const session = requireSession(sessionMatch[1]);
 
     if (method === 'GET') {
       const sources = db.sources
@@ -844,7 +874,7 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
       }
       if (patch.title !== undefined) patch.title = String(patch.title).trim();
       if (patch.description !== undefined) patch.description = String(patch.description).trim();
-      Object.assign(session, patch, { updatedAt: new Date().toISOString() });
+      Object.assign(session, patch, { updatedAt: nowIso() });
       return { session: sessionWithCounts(session) };
     }
   }

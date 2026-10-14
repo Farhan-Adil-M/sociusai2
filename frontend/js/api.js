@@ -65,6 +65,9 @@ const HTTP_FALLBACKS = {
 const TIMEOUT_MESSAGE = 'The server took too long to answer. Check your connection and try again.';
 const UNREACHABLE_MESSAGE = 'The Socius AI server could not be reached. Check your connection and try again.';
 
+/** What the sign-in page is told when a 401 survives one token refresh. */
+const EXPIRED_SESSION_MESSAGE = 'Your session has expired — sign in again to continue.';
+
 /* ------------------------------------------------------------- mock mode */
 
 /**
@@ -270,23 +273,25 @@ async function send(path, options = {}) {
   }
 }
 
-/** Send and fully read the body (text → JSON). Returns { response, data }. */
+/** The body as JSON, or null when it is not our envelope (proxy page, 204, …). */
+function parseJson(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Send and fully read the body (text → JSON). Returns { response, data, text }. */
 async function exchange(path, options) {
   const { response, plan } = await send(path, options);
   try {
     const text = await response.text().catch(() => '');
-    let data = null;
-    if (text) {
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = null; // not our JSON envelope (proxy error page, plain text, 204, …)
-      }
-    }
     // `text` is the raw body. It is kept alongside `data` so a caller that
     // WANTS a non-JSON body (GET /api/viewer/:id/text is text/plain) can read
     // it, instead of watching the body be parsed to null and dropped.
-    return { response, data, text };
+    return { response, data: parseJson(text), text };
   } catch (error) {
     throw toRequestError(error, plan);
   } finally {
@@ -296,13 +301,7 @@ async function exchange(path, options) {
 
 /** Read a response body as JSON without throwing on a non-JSON body. */
 async function readJson(response) {
-  const text = await response.text().catch(() => '');
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
+  return parseJson(await response.text().catch(() => ''));
 }
 
 /**
@@ -318,6 +317,12 @@ function toPlainTextBody(data) {
 /** The path without its query string (used for the public-endpoint check). */
 function pathOnly(path) {
   return String(path).split('?')[0];
+}
+
+/** The session is still unusable after one refresh: send the visitor to sign in. */
+function throwSessionExpired(data) {
+  redirectToLoginWithNotice(EXPIRED_SESSION_MESSAGE);
+  throw new ApiError('UNAUTHENTICATED', 'Sign in required.', 401, data);
 }
 
 /**
@@ -355,10 +360,7 @@ async function request(path, options = {}) {
   if (response.status === 401 && !PUBLIC_PATHS.has(pathOnly(path))) {
     const token = await refreshAccessToken();
     if (token) ({ response, data, text } = await exchange(path, { ...options, token }));
-    if (response.status === 401) {
-      redirectToLoginWithNotice('Your session has expired — sign in again to continue.');
-      throw new ApiError('UNAUTHENTICATED', 'Sign in required.', 401, data);
-    }
+    if (response.status === 401) throwSessionExpired(data);
   }
 
   if (!response.ok) throw toApiError(response, data);
@@ -475,13 +477,7 @@ async function readEventStream(body, onDelta) {
     const payload = text.slice(5).trim();
     if (!payload || payload === '[DONE]') return;
 
-    let parsed = null;
-    try {
-      parsed = JSON.parse(payload);
-    } catch {
-      parsed = null;
-    }
-
+    const parsed = parseJson(payload);
     if (parsed === null) {
       // A plain-text SSE endpoint: `data: some words`.
       emit(payload);
@@ -552,8 +548,7 @@ export async function apiStream(path, body, onDelta, options = {}) {
     }
     if (attempt.response.status === 401) {
       attempt.plan.cancel();
-      redirectToLoginWithNotice('Your session has expired — sign in again to continue.');
-      throw new ApiError('UNAUTHENTICATED', 'Sign in required.', 401, null);
+      throwSessionExpired(null);
     }
   }
 

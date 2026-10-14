@@ -126,11 +126,11 @@ export function parseYouTubeUrl(value) {
   } catch {
     return null;
   }
+  const host = parsed.hostname.toLowerCase();
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-  if (!YOUTUBE_HOSTS.has(parsed.hostname.toLowerCase())) return null;
+  if (!YOUTUBE_HOSTS.has(host)) return null;
 
   const segments = parsed.pathname.split('/').filter((part) => part !== '');
-  const host = parsed.hostname.toLowerCase();
   const mode = PATH_MODES.get(segments[0] ?? '');
 
   let videoId = null;
@@ -238,6 +238,9 @@ export function chooseCaptionTrack(tracks, preferredLanguage = 'en') {
   };
 }
 
+// A caption track this large is refused before it ever lands in memory.
+const TRACK_TOO_LARGE_MESSAGE = 'This video\'s caption track is too large to process. Try a shorter video.';
+
 /** GET a caption track's `baseUrl` and return its body, or throw. */
 async function fetchTrackText(baseUrl, videoId) {
   const response = await fetch(baseUrl, {
@@ -251,11 +254,11 @@ async function fetchTrackText(baseUrl, videoId) {
   // Read as text but refuse an absurdly large body before it lands in memory.
   const declared = Number(response.headers.get('content-length') ?? 0);
   if (Number.isFinite(declared) && declared > MAX_TRACK_BYTES) {
-    throw new ApiError(502, 'FETCH_FAILED', 'This video\'s caption track is too large to process. Try a shorter video.');
+    throw new ApiError(502, 'FETCH_FAILED', TRACK_TOO_LARGE_MESSAGE);
   }
   const body = await response.text();
   if (body.length > MAX_TRACK_BYTES) {
-    throw new ApiError(502, 'FETCH_FAILED', 'This video\'s caption track is too large to process. Try a shorter video.');
+    throw new ApiError(502, 'FETCH_FAILED', TRACK_TOO_LARGE_MESSAGE);
   }
   if (body.trim() === '') {
     // YouTube answers 200 with an EMPTY body when it declines to serve the
@@ -275,10 +278,9 @@ async function fetchTrackText(baseUrl, videoId) {
 // an inline tag. All are normalised here, once.
 const CUE_ELEMENT = /<p\b([^>]*)>([\s\S]*?)<\/p>/g;
 
-function attribute(attributes, name) {
-  const match = new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`).exec(attributes);
-  return match ? match[1] : null;
-}
+// The only attribute a cue needs: its start time in ms. `d` is deliberately
+// unread — segment length comes from SEGMENT_SECONDS, so a lying `d` is ignored.
+const CUE_START_ATTRIBUTE = /\bt\s*=\s*"([^"]*)"/;
 
 /** Decode the entities YouTube emits, drop any inline tag, flatten newlines. */
 function normalizeCueText(raw) {
@@ -303,7 +305,7 @@ function normalizeCueText(raw) {
 export function parseTimedText(body) {
   const cues = [];
   for (const match of String(body ?? '').matchAll(CUE_ELEMENT)) {
-    const start = Number(attribute(match[1], 't') ?? NaN);
+    const start = Number(CUE_START_ATTRIBUTE.exec(match[1])?.[1] ?? NaN);
     const text = normalizeCueText(match[2] ?? '');
     if (!Number.isFinite(start) || start < 0 || text === '') continue;
     cues.push({ startSeconds: start / 1000, text });

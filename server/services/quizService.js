@@ -23,6 +23,31 @@ export { gradeAnswers };
 
 const MAX_ATTEMPTS = 2; // bounded retries when the model returns unusable JSON
 
+// ---------- retrieving the material to assess over ----------
+
+// The 422 both persisting generators show when retrieval found nothing.
+const NOT_ENOUGH_MATERIAL = 'Not enough indexed material on this topic yet. Upload relevant material or pick another topic.';
+
+/** Breadth retrieval for assessment generation: the SAME floor, flag and
+ *  passage wrapping for every generator (quizzes, flashcards, practice
+ *  questions), so they can never disagree about what "enough material" means.
+ *  The floor is NOT applied to the search (a short topic query scores lower
+ *  than a full question — contract v1.2); `weakEvidence` records that EVERY hit
+ *  came back below it so the caller can warn honestly. */
+export async function retrieveForAssessment(query, { sourceIds = [], ai, vector, userId = 'default' }) {
+  const hits = await retrieve(query, { sourceIds, k: 8, minScore: 0, ai, vector, userId });
+  return {
+    hits,
+    weakEvidence: hits.every((hit) => (hitScore(hit) ?? 0) < config.ragMinSimilarity),
+    evidence: wrapPassages(hits),
+  };
+}
+
+/** The 422 the two persisting generators raise when retrieval found nothing. */
+export function requireMaterial(hits) {
+  if (hits.length === 0) throw new ApiError(422, 'QUIZ_CONTENT_INVALID', NOT_ENOUGH_MATERIAL);
+}
+
 // ---------- pure helpers (exported for tests) ----------
 
 export function parseJsonLoose(text) {
@@ -36,6 +61,14 @@ export function parseJsonLoose(text) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Passage numbers a model may reference: 1-based positive integers only.
+ * Anything else is dropped here and simply resolves to no hit at citation time.
+ */
+export function passageNumbers(cite) {
+  return Array.isArray(cite) ? cite.filter((n) => Number.isInteger(n) && n >= 1) : [];
 }
 
 // ---------- difficulty tagging, level 1-4 (deterministic fallback) ----------
@@ -111,17 +144,20 @@ export function normalizeQuestion(raw, { topic, difficulty = 'medium' } = {}) {
     level,
     estimatedMinutes: estimatedMinutesFor(text, level),
     // Only passage indexes the model may reference; invalid ones are dropped later.
-    cite: Array.isArray(raw.cite) ? raw.cite.filter((n) => Number.isInteger(n) && n >= 1) : [],
+    cite: passageNumbers(raw.cite),
   };
 }
 
-function citationsForQuestion(hits, citeIndexes) {
-  const picked = [];
-  for (const n of citeIndexes.slice(0, 3)) {
-    if (hits[n - 1]) picked.push(toCitation(hits[n - 1]));
-  }
-  if (picked.length === 0) picked.push(...hits.slice(0, 2).map(toCitation));
-  return picked;
+/**
+ * The citations a generated question points at, resolved against the retrieved
+ * hits: the passage numbers the model listed (1-based), in order of first
+ * reference. An out-of-range number resolves to nothing; when NOTHING resolves,
+ * the two strongest hits are cited instead so the question still points at real
+ * provided material rather than claiming to be grounded with no source.
+ */
+export function citationsForQuestion(hits, citeIndexes) {
+  const picked = citeIndexes.slice(0, 3).map((n) => hits[n - 1]).filter(Boolean).map(toCitation);
+  return picked.length > 0 ? picked : hits.slice(0, 2).map(toCitation);
 }
 
 // ---------- generation ----------
@@ -220,6 +256,24 @@ async function previousQuestionTexts(db, { userId, topic }) {
   return rows.map((row) => row.text);
 }
 
+// Persist the generated quiz: the quiz row plus one question row per accepted
+// question. The answer key (`correct_choice_id`) is written HERE and nowhere
+// else — generateQuiz strips it before building the response.
+async function persistQuiz(db, { quizId, userId, topic, difficulty, createdAt, withCitations }) {
+  await db.batch([
+    {
+      sql: 'INSERT INTO quizzes (id, user_id, topic, difficulty, question_count, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [quizId, userId, topic, difficulty, withCitations.length, createdAt],
+    },
+    ...withCitations.map(({ q, citations }, idx) => ({
+      sql: `INSERT INTO quiz_questions
+        (quiz_id, idx, text, choices_json, correct_choice_id, explanation, citations_json, difficulty, estimated_minutes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [quizId, idx, q.text, JSON.stringify(q.choices), q.correctChoiceId, q.explanation, JSON.stringify(citations), q.level, q.estimatedMinutes],
+    })),
+  ], 'write');
+}
+
 export async function generateQuiz({ topic, questionCount = 5, difficulty, sourceIds = [], userId = 'default' }, { db, ai, vector }) {
   const chat = ai?.chatCompletion ?? chatCompletion;
   const quizTopic = topic.trim();
@@ -227,15 +281,8 @@ export async function generateQuiz({ topic, questionCount = 5, difficulty, sourc
   // also the deterministic fallback for any question the model left untagged.
   const practiceDifficulty = difficulty ?? 'medium';
 
-  const hits = await retrieve(quizTopic, { sourceIds, k: 8, minScore: 0, ai, vector, userId });
-  const weakEvidence = hits.every((hit) => (hitScore(hit) ?? 0) < config.ragMinSimilarity);
-
-  if (hits.length === 0) {
-    throw new ApiError(422, 'QUIZ_CONTENT_INVALID',
-      'Not enough indexed material on this topic yet. Upload relevant material or pick another topic.');
-  }
-
-  const evidence = wrapPassages(hits);
+  const { hits, weakEvidence, evidence } = await retrieveForAssessment(quizTopic, { sourceIds, ai, vector, userId });
+  requireMaterial(hits);
   const recent = await previousQuestionTexts(db, { userId, topic: quizTopic });
 
   const accepted = await collectQuestions({
@@ -251,22 +298,10 @@ export async function generateQuiz({ topic, questionCount = 5, difficulty, sourc
   // both for storage and for the response.
   const withCitations = accepted.map((q) => ({ q, citations: citationsForQuestion(hits, q.cite) }));
 
-  // Persist with the answer key (server-side only) plus the difficulty level
-  // and reading estimate (schema v8 columns).
   const quizId = newId('quiz');
-  const createdAt = nowIso();
-  await db.batch([
-    {
-      sql: 'INSERT INTO quizzes (id, user_id, topic, difficulty, question_count, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      args: [quizId, userId, quizTopic, practiceDifficulty, accepted.length, createdAt],
-    },
-    ...withCitations.map(({ q, citations }, idx) => ({
-      sql: `INSERT INTO quiz_questions
-        (quiz_id, idx, text, choices_json, correct_choice_id, explanation, citations_json, difficulty, estimated_minutes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [quizId, idx, q.text, JSON.stringify(q.choices), q.correctChoiceId, q.explanation, JSON.stringify(citations), q.level, q.estimatedMinutes],
-    })),
-  ], 'write');
+  await persistQuiz(db, {
+    quizId, userId, topic: quizTopic, difficulty: practiceDifficulty, createdAt: nowIso(), withCitations,
+  });
 
   // Strip the key before it ever reaches the response. Difficulty and reading
   // estimate are additive (contract v2.0 "additive change is the norm").

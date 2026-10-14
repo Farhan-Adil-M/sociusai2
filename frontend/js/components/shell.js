@@ -25,6 +25,7 @@
 
 import { MOCK_BADGE_TEXT, apiGet, isMockMode } from '../api.js';
 import { getHealthStatus, getUserName, requireSignIn, signOut } from '../auth.js';
+import { FOCUSABLE, trapTab } from './focus.js';
 import { escapeHtml, icon } from '../ui.js';
 
 /* --------------------------------------------------------------- navigation */
@@ -179,7 +180,7 @@ function wireDrawer(root) {
   if (!sidebar || !toggle) return;
 
   const isOpen = () => sidebar.classList.contains('is-open');
-  const focusables = () => sidebar.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+  const focusables = () => sidebar.querySelectorAll(FOCUSABLE);
 
   const setToggle = (open) => {
     toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -188,32 +189,7 @@ function wireDrawer(root) {
   };
 
   // Escape always closes; Tab cycles within the drawer instead of escaping it.
-  const onKeydown = (event) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      close();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const items = focusables();
-    if (items.length === 0) return;
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (!sidebar.contains(document.activeElement)) {
-      event.preventDefault();
-      first.focus();
-      return;
-    }
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-      return;
-    }
-    if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
+  const onKeydown = trapTab(sidebar, close);
 
   function open() {
     sidebar.classList.add('is-open');
@@ -253,10 +229,8 @@ function wireDrawer(root) {
 
 function wireSignOut(root) {
   root.querySelectorAll('[data-sign-out]').forEach((button) => {
-    button.addEventListener('click', () => {
-      // auth.signOut() clears the session and routes back to login.html.
-      signOut();
-    });
+    // auth.signOut() clears the session and routes back to login.html.
+    button.addEventListener('click', () => signOut());
   });
 }
 

@@ -188,16 +188,17 @@ function fail(message) {
   throw new ApiError(400, 'VALIDATION_ERROR', message);
 }
 
+const LIMIT_MESSAGE = `limit must be a whole number between 1 and ${MAX_FEED_LIMIT}.`;
+const SINCE_MESSAGE = 'since must be an ISO-8601 timestamp.';
+const CURSOR_MESSAGE = 'cursor is not valid.';
+
 /** `limit`: optional whole number 1–100 (default 20). */
 export function parseFeedLimit(value) {
   if (value === undefined) return DEFAULT_FEED_LIMIT;
-  if (typeof value !== 'string' || !/^\d+$/.test(value.trim())) {
-    fail(`limit must be a whole number between 1 and ${MAX_FEED_LIMIT}.`);
-  }
-  const limit = Number(value.trim());
-  if (limit < 1 || limit > MAX_FEED_LIMIT) {
-    fail(`limit must be a whole number between 1 and ${MAX_FEED_LIMIT}.`);
-  }
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (!/^\d+$/.test(trimmed)) fail(LIMIT_MESSAGE);
+  const limit = Number(trimmed);
+  if (limit < 1 || limit > MAX_FEED_LIMIT) fail(LIMIT_MESSAGE);
   return limit;
 }
 
@@ -220,9 +221,10 @@ export function parseFeedTypes(value) {
 /** `since`: optional ISO-8601 timestamp, exclusive lower bound. */
 export function parseFeedSince(value) {
   if (value === undefined) return null;
-  if (typeof value !== 'string' || value.trim() === '') fail('since must be an ISO-8601 timestamp.');
-  if (!Number.isFinite(Date.parse(value.trim()))) fail('since must be an ISO-8601 timestamp.');
-  return new Date(value.trim()).toISOString();
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (trimmed === '') fail(SINCE_MESSAGE);
+  if (!Number.isFinite(Date.parse(trimmed))) fail(SINCE_MESSAGE);
+  return new Date(trimmed).toISOString();
 }
 
 /**
@@ -234,17 +236,17 @@ export function encodeFeedCursor({ at, id }) {
 }
 
 export function decodeFeedCursor(value) {
-  if (typeof value !== 'string' || value.trim() === '') fail('cursor is not valid.');
   let parsed;
   try {
-    parsed = JSON.parse(Buffer.from(value.trim(), 'base64url').toString('utf8'));
+    const text = Buffer.from(typeof value === 'string' ? value.trim() : '', 'base64url').toString('utf8');
+    parsed = JSON.parse(text);
   } catch {
-    fail('cursor is not valid.');
+    fail(CURSOR_MESSAGE);
   }
-  if (!parsed || typeof parsed !== 'object') fail('cursor is not valid.');
+  if (!parsed || typeof parsed !== 'object') fail(CURSOR_MESSAGE);
   const at = typeof parsed.at === 'string' && Number.isFinite(Date.parse(parsed.at)) ? new Date(parsed.at).toISOString() : null;
   const id = Number(parsed.id);
-  if (at === null || !Number.isInteger(id) || id < 1) fail('cursor is not valid.');
+  if (at === null || !Number.isInteger(id) || id < 1) fail(CURSOR_MESSAGE);
   return { at, id };
 }
 
@@ -262,13 +264,14 @@ export function parseFeedQuery(query = {}) {
 // ---------- row reading ------------------------------------------------------
 
 function normalizeActivityRow(row) {
+  const { id, type, topic, detail, at, session_id } = row ?? {};
   return {
-    id: Number(row?.id),
-    type: typeof row?.type === 'string' ? row.type : '',
-    topic: typeof row?.topic === 'string' && row.topic.trim() !== '' ? row.topic : null,
-    detail: typeof row?.detail === 'string' ? row.detail : '',
-    at: typeof row?.at === 'string' ? row.at : '',
-    sessionId: typeof row?.session_id === 'string' ? row.session_id : null,
+    id: Number(id),
+    type: typeof type === 'string' ? type : '',
+    topic: typeof topic === 'string' && topic.trim() !== '' ? topic : null,
+    detail: typeof detail === 'string' ? detail : '',
+    at: typeof at === 'string' ? at : '',
+    sessionId: typeof session_id === 'string' ? session_id : null,
   };
 }
 
@@ -311,6 +314,26 @@ function closeInTime(a, b, ms) {
 }
 
 /**
+ * The unconsumed legacy row that pairs with `row`, or null. Marks the partner
+ * consumed, so a legacy row can be adopted by at most one study event.
+ */
+function findLegacyPartner(source, row, index, consumed) {
+  const partnerType = LEGACY_HISTORY_PARTNERS[row.type];
+  if (!partnerType) return null;
+  const last = Math.min(index + FEED_LOOKAHEAD, source.length - 1);
+  for (let j = index + 1; j <= last; j += 1) {
+    const candidate = source[j];
+    if (consumed.has(j)) continue;
+    if (candidate.type !== partnerType) continue;
+    if (!sameTopic(candidate.topic, row.topic)) continue;
+    if (!closeInTime(candidate.at, row.at, PAIR_WINDOW_MS)) continue;
+    consumed.add(j);
+    return candidate;
+  }
+  return null;
+}
+
+/**
  * Collapse each (legacy row, study-event row) pair that describes ONE action
  * into a single event. Pure and deterministic: rows arrive newest first, a
  * study-event row may adopt at most one unconsumed legacy partner, and the
@@ -326,40 +349,37 @@ function closeInTime(a, b, ms) {
 export function mergeFeedRows(rows) {
   const source = Array.isArray(rows) ? rows : [];
   const consumed = new Set();
-  const out = [];
 
+  const out = [];
   for (let i = 0; i < source.length; i += 1) {
     if (consumed.has(i)) continue;
     const row = source[i];
-    const partnerType = LEGACY_HISTORY_PARTNERS[row.type];
-    let merged = null;
-
-    if (partnerType) {
-      const last = Math.min(i + FEED_LOOKAHEAD, source.length - 1);
-      for (let j = i + 1; j <= last; j += 1) {
-        const candidate = source[j];
-        if (consumed.has(j)) continue;
-        if (candidate.type !== partnerType) continue;
-        if (!sameTopic(candidate.topic, row.topic)) continue;
-        if (!closeInTime(candidate.at, row.at, PAIR_WINDOW_MS)) continue;
-        consumed.add(j);
-        merged = {
-          ...row,
-          recordedAs: [candidate.type, row.type],
-          cursorAt: candidate.at,
-          cursorId: candidate.id,
-        };
-        break;
-      }
-    }
-
-    out.push(merged ?? { ...row, cursorAt: row.at, cursorId: row.id });
+    const partner = findLegacyPartner(source, row, i, consumed);
+    out.push(partner === null
+      ? { ...row, cursorAt: row.at, cursorId: row.id }
+      : { ...row, recordedAs: [partner.type, row.type], cursorAt: partner.at, cursorId: partner.id });
   }
 
   return out;
 }
 
 // ---------- references + mastery (real rows only) ---------------------------
+
+// The record kinds an event type links to — a quiz or a stored source. Every
+// other activity type (a tutor ask) has nothing to point at. A Map, so a stored
+// `type` that happens to be "constructor" cannot resolve to something.
+const REFERENCE_KINDS = new Map([
+  ['quiz', 'quiz'],
+  ['quiz_answered', 'quiz'],
+  ['upload', 'source'],
+  ['source_uploaded', 'source'],
+]);
+
+const QUIZ_REFERENCE_SQL = `SELECT q.id AS id, q.topic AS label FROM quiz_attempts a
+     JOIN quizzes q ON q.id = a.quiz_id
+     WHERE q.user_id = ? AND a.created_at >= ? AND a.created_at <= ?`;
+
+const SOURCE_REFERENCE_SQL = 'SELECT id, title AS label FROM sources WHERE user_id = ? AND created_at >= ? AND created_at <= ?';
 
 /**
  * The single stored record an event is about, or null. A lookup that finds
@@ -377,30 +397,17 @@ function uniqueReference(rows, kind) {
 async function resolveReference(db, userId, event) {
   const at = Date.parse(event.at);
   if (!Number.isFinite(at)) return null;
-  const from = new Date(at - REFERENCE_WINDOW_MS).toISOString();
-  const to = new Date(at + REFERENCE_WINDOW_MS).toISOString();
-
-  if (event.type === 'quiz' || event.type === 'quiz_answered') {
-    const rows = await db.all(
-      `SELECT q.id AS id, q.topic AS label FROM quiz_attempts a
-       JOIN quizzes q ON q.id = a.quiz_id
-       WHERE q.user_id = ? AND a.created_at >= ? AND a.created_at <= ?`,
-      userId, from, to,
-    );
-    return uniqueReference(rows, 'quiz');
-  }
-
-  if (event.type === 'upload' || event.type === 'source_uploaded') {
-    const rows = await db.all(
-      'SELECT id, title AS label FROM sources WHERE user_id = ? AND created_at >= ? AND created_at <= ?',
-      userId, from, to,
-    );
-    return uniqueReference(rows, 'source');
-  }
-
+  const kind = REFERENCE_KINDS.get(event.type);
   // A tutor question is not persisted as a record of its own (there is no
   // messages table), so there is honestly nothing to link to.
-  return null;
+  if (kind === undefined) return null;
+
+  const from = new Date(at - REFERENCE_WINDOW_MS).toISOString();
+  const to = new Date(at + REFERENCE_WINDOW_MS).toISOString();
+  const rows = kind === 'quiz'
+    ? await db.all(QUIZ_REFERENCE_SQL, userId, from, to)
+    : await db.all(SOURCE_REFERENCE_SQL, userId, from, to);
+  return uniqueReference(rows, kind);
 }
 
 /**
@@ -430,15 +437,28 @@ async function masteryByTopic(db, userId, events) {
   const wanted = new Set(events.map((event) => event.topic).filter((topic) => typeof topic === 'string' && topic !== ''));
   if (wanted.size === 0) return new Map();
   const summary = await summarizeMastery(db, { userId });
-  const map = new Map();
-  for (const topic of wanted) {
-    const record = (summary?.topics ?? []).find((entry) => entry.topic === topic);
-    map.set(topic, topicMasteryOf(record));
-  }
-  return map;
+  const byTopic = new Map((summary?.topics ?? []).map((entry) => [entry.topic, entry]));
+  return new Map([...wanted].map((topic) => [topic, topicMasteryOf(byTopic.get(topic))]));
 }
 
 // ---------- the feed --------------------------------------------------------
+
+/** One merged row + its resolved reference + mastery → the wire event. */
+function shapeEvent(event, reference, mastery) {
+  return {
+    id: event.id,
+    type: event.type,
+    topic: event.topic,
+    detail: event.detail,
+    sessionId: event.sessionId,
+    at: event.at,
+    // Present only when two stored rows describe this one action: both raw
+    // types, so the pairing is auditable rather than hidden.
+    ...(event.recordedAs ? { recordedAs: event.recordedAs } : {}),
+    ...(reference ? { ref: reference } : {}),
+    ...(event.topic ? { topicMastery: mastery.get(event.topic) ?? null } : {}),
+  };
+}
 
 /**
  * Read one page of the caller's study history, newest first.
@@ -460,20 +480,7 @@ export async function loadActivityFeed(db, options = {}) {
   const events = [];
   for (const event of page) {
     const reference = await resolveReference(db, userId, event);
-    const shaped = {
-      id: event.id,
-      type: event.type,
-      topic: event.topic,
-      detail: event.detail,
-      sessionId: event.sessionId,
-      at: event.at,
-      // Present only when two stored rows describe this one action: both raw
-      // types, so the pairing is auditable rather than hidden.
-      ...(event.recordedAs ? { recordedAs: event.recordedAs } : {}),
-      ...(reference ? { ref: reference } : {}),
-      ...(event.topic ? { topicMastery: mastery.get(event.topic) ?? null } : {}),
-    };
-    events.push(shaped);
+    events.push(shapeEvent(event, reference, mastery));
   }
 
   const last = page[page.length - 1];
@@ -520,17 +527,24 @@ export function isRepeatedQuestion(current, recent = []) {
 
 // ---- teaching-approach memory (pure + one read) -----------------------------
 
+// The most recent approach_change row for one topic of one user — read by both
+// approach readers below so the two can never drift apart.
+const LAST_APPROACH_CHANGE_SQL =
+  "SELECT id, detail_json FROM learning_events WHERE kind = 'approach_change' AND topic = ? AND user_id = ? ORDER BY id DESC LIMIT 1";
+
+/** The approach an approach_change row switched to, or null when unusable. */
+function approachOf(changeRow) {
+  const approach = parseJsonObject(changeRow.detail_json).to;
+  return typeof approach === 'string' ? approach : null;
+}
+
 // The most recently requested approach for a topic, or null.
 export async function lastApproach(db, topic, userId = 'default') {
   const key = cleanTopic(topic);
   if (key === null) return null;
-  const row = await db.get(
-    "SELECT detail_json FROM learning_events WHERE kind = 'approach_change' AND topic = ? AND user_id = ? ORDER BY id DESC LIMIT 1",
-    key, userId,
-  );
+  const row = await db.get(LAST_APPROACH_CHANGE_SQL, key, userId);
   if (!row) return null;
-  const approach = parseJsonObject(row.detail_json).to;
-  return typeof approach === 'string' ? approach : null;
+  return approachOf(row);
 }
 
 // Pick the approach to teach with.
@@ -544,7 +558,8 @@ export async function lastApproach(db, topic, userId = 'default') {
 export function chooseApproach({ explicit = null, previous = null, preferred = null } = {}) {
   const pref = APPROACH_ORDER.includes(preferred) ? preferred : null;
 
-  if (explicit === null || explicit === undefined || explicit === '') return pref;
+  // `explicit == null` covers both null and undefined; "" is the "no request" value.
+  if (explicit == null || explicit === '') return pref;
   if (explicit !== 'different') return explicit;
 
   if (previous === null && pref === null) return APPROACH_ORDER[0];
@@ -570,9 +585,9 @@ export function chooseApproach({ explicit = null, previous = null, preferred = n
 
 export function summarizeApproaches(events, topic) {
   const topicKey = cleanTopic(topic) ?? '';
+  // filter() already returned a fresh array, so the caller's list is never sorted.
   const rows = (Array.isArray(events) ? events : [])
     .filter((row) => row && (topicKey === '' || row.topic === null || row.topic === topicKey))
-    .slice()
     .sort((a, b) => a.id - b.id);
 
   const helped = [];
@@ -630,10 +645,7 @@ export async function maybeRecordRecovery(db, { topic, masteryBefore, masteryAft
   const key = cleanTopic(topic);
   if (key === null) return null;
 
-  const lastChange = await db.get(
-    "SELECT id, detail_json FROM learning_events WHERE kind = 'approach_change' AND topic = ? AND user_id = ? ORDER BY id DESC LIMIT 1",
-    key, userId,
-  );
+  const lastChange = await db.get(LAST_APPROACH_CHANGE_SQL, key, userId);
   if (!lastChange) return null;
 
   const laterRecovery = await db.get(
@@ -642,8 +654,8 @@ export async function maybeRecordRecovery(db, { topic, masteryBefore, masteryAft
   );
   if (laterRecovery) return null; // this approach change already has its outcome
 
-  const approach = parseJsonObject(lastChange.detail_json).to;
-  if (typeof approach !== 'string' || approach === '') return null;
+  const approach = approachOf(lastChange);
+  if (approach === null || approach === '') return null;
   if (!(masteryAfter > masteryBefore)) return null;
 
   return recordEvent(db, {

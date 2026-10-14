@@ -19,16 +19,18 @@
 // Inputs (scheduling): the current card state + a review grade + `now`.
 // Outputs: a saved deck (generateFlashcards) / the next card state
 //   (scheduleCardReview).
-// Dependencies: retrieval.js (retrieve/toCitation/hitScore — A13, imported,
-//   never edited), prompts.js, quizService.parseJsonLoose, nimChat, config.
+// Dependencies: retrieval.js (toCitation — A13, imported, never edited),
+//   prompts.js, quizService (retrieveForAssessment / requireMaterial /
+//   passageNumbers / parseJsonLoose — the shared assessment path, cite
+//   validation and JSON parser), nimChat, config.
 // Test: tests/decks.test.js + tests/events.test.js cover generation and the
 //   persisted review state; determinism is proven by replaying a fixed review
 //   history (see the report) as well as by the pure functions below.
 
 import { chatCompletion } from './nimChat.js';
-import { retrieve, toCitation, hitScore } from './retrieval.js';
-import { wrapPassages, UNTRUSTED_RULE } from './prompts.js';
-import { parseJsonLoose } from './quizService.js';
+import { toCitation } from './retrieval.js';
+import { UNTRUSTED_RULE } from './prompts.js';
+import { retrieveForAssessment, requireMaterial, parseJsonLoose, passageNumbers } from './quizService.js';
 import { config } from '../config.js';
 import { ApiError } from '../middleware/errors.js';
 import { newId, nowIso } from '../store/sqlite.js';
@@ -49,7 +51,7 @@ export function normalizeCard(raw, hits) {
   // does not exist) is dropped; if nothing resolves, the strongest retrieved
   // passage is cited so the card still points at real provided material rather
   // than claiming to be grounded with no source at all.
-  const cite = Array.isArray(raw.cite) ? raw.cite.filter((n) => Number.isInteger(n) && n >= 1) : [];
+  const cite = passageNumbers(raw.cite);
   const citations = cite.map((n) => hits[n - 1]).filter(Boolean).slice(0, 3).map(toCitation);
   if (citations.length === 0) citations.push(...hits.slice(0, 1).map(toCitation));
 
@@ -58,18 +60,11 @@ export function normalizeCard(raw, hits) {
 
 export async function generateFlashcards({ topic, count = 8, sourceIds = [], sessionId = null, userId = 'default' }, { ai, vector, db } = {}) {
   const chat = ai?.chatCompletion ?? chatCompletion;
-  // Generation retrieves without the evidence floor (a short topic query scores
-  // lower than a full question — contract v1.2), but records `weakEvidence`
-  // when every hit is below it, so the frontend can warn honestly.
-  const hits = await retrieve(topic, { sourceIds, k: 8, minScore: 0, ai, vector, userId });
-  const weakEvidence = hits.every((hit) => (hitScore(hit) ?? 0) < config.ragMinSimilarity);
-
-  if (hits.length === 0) {
-    throw new ApiError(422, 'QUIZ_CONTENT_INVALID',
-      'Not enough indexed material on this topic yet. Upload relevant material or pick another topic.');
-  }
-
-  const evidence = wrapPassages(hits);
+  // Generation retrieves without the evidence floor, but records
+  // `weakEvidence` when every hit is below it, so the frontend can warn
+  // honestly. The retrieval itself is quizService's shared assessment path.
+  const { hits, weakEvidence, evidence } = await retrieveForAssessment(topic, { sourceIds, ai, vector, userId });
+  requireMaterial(hits);
   const systemPrompt = [
     'You create study flashcards strictly from the passages provided.',
     UNTRUSTED_RULE,
@@ -102,11 +97,7 @@ export async function generateFlashcards({ topic, count = 8, sourceIds = [], ses
   // Every freshly generated card starts as a NEW card: no review history, the
   // default ease, and no due date (NULL = due now) — the scheduler takes over
   // from the first review onwards.
-  const result = {
-    topic,
-    model: config.nimAssessModel,
-    cards: cards.map((card, i) => ({ id: `card_${i + 1}`, status: 'new', dueAt: null, ...card })),
-  };
+  const newCards = cards.map((card, i) => ({ id: `card_${i + 1}`, status: 'new', dueAt: null, ...card }));
 
   // Persisted: flashcards become browseable study resources, not one-shot responses.
   let deckId = null;
@@ -117,14 +108,21 @@ export async function generateFlashcards({ topic, count = 8, sourceIds = [], ses
         sql: 'INSERT INTO decks (id, user_id, session_id, topic, source_ids_json, card_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
         args: [deckId, userId, sessionId, topic, JSON.stringify(sourceIds), cards.length, nowIso()],
       },
-      ...result.cards.map((card, idx) => ({
+      ...newCards.map((card, idx) => ({
         sql: `INSERT INTO deck_cards (deck_id, idx, front, back, citations_json, status, reviewed_at, review_count, ease, due_at)
               VALUES (?, ?, ?, ?, ?, 'new', NULL, 0, ?, NULL)`,
         args: [deckId, idx, card.front, card.back, JSON.stringify(card.citations), SRS.easeDefault],
       })),
     ], 'write');
   }
-  return { topic, model: config.nimAssessModel, cards: result.cards, ...(weakEvidence ? { weakEvidence: true } : {}), deckId, sessionId };
+  return {
+    topic,
+    model: config.nimAssessModel,
+    cards: newCards,
+    ...(weakEvidence ? { weakEvidence: true } : {}),
+    deckId,
+    sessionId,
+  };
 }
 
 // ---- spaced repetition (pure + deterministic) -------------------------------
@@ -224,7 +222,7 @@ export function scheduleCardReview(card = {}, grade, now = new Date()) {
   if (!Number.isFinite(nowMs)) throw new TypeError('scheduleCardReview requires a valid `now`.');
 
   // Reset to new: forget the schedule entirely, no due date until studied again.
-  if (grade === null || grade === undefined || !REVIEW_GRADES.includes(grade)) {
+  if (!REVIEW_GRADES.includes(grade)) {
     return { status: 'new', grade: null, reviewCount: 0, ease: SRS.easeDefault, intervalDays: 0, dueAt: null };
   }
 

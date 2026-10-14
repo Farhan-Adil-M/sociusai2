@@ -12,28 +12,20 @@
 // `kind: 'heading'` plus the `section` every following paragraph belongs to.
 // Without it the chunker has to infer headings from a line's shape, which fails
 // on documents whose headings look like ordinary prose.
+//
+// Entity decoding, the container guard and the section-name cap are shared with
+// extract/pptx.js and live in extract/office.js.
 
-import AdmZip from 'adm-zip';
 import { ApiError } from '../../middleware/errors.js';
-import { decodeXmlEntities } from './pptx.js';
+import { decodeXmlEntities, openOfficeZip, sectionName } from './office.js';
 
 const DOCUMENT_PATH = 'word/document.xml';
-
-// A section name is stored on every chunk of the section, so cap it: a
-// mis-styled 4,000-character paragraph would otherwise bloat every chunk.
-const MAX_SECTION_CHARS = 200;
 
 // Word names every heading style one of these: "Heading1" … "Heading9",
 // "heading 2", "TOC Heading", "Heading 1 No Spacing", "Title", "Subtitle".
 // Matching on "heading" catches every variant (a style whose name mentions
 // headings IS a heading style); "Title"/"Subtitle" are their own built-ins.
 const HEADING_STYLE = /heading|^(?:sub)?title$/i;
-
-function sectionName(text) {
-  const trimmed = String(text ?? '').trim();
-  if (trimmed === '') return null;
-  return trimmed.length > MAX_SECTION_CHARS ? `${trimmed.slice(0, MAX_SECTION_CHARS - 1).trimEnd()}…` : trimmed;
-}
 
 // One ordered pass over a paragraph body: text runs, tabs, and line breaks.
 // `<w:t>` cannot accidentally match `<w:tab>`/`<w:pPr>` because the run branch
@@ -109,13 +101,8 @@ export function extractDocxParagraphs(documentXml) {
  * `persistSource`, which only keeps `text` and `location` for `source_segments`.
  */
 export function extractDocx(buffer) {
-  let zip;
-  try {
-    zip = new AdmZip(buffer);
-  } catch {
-    throw new ApiError(400, 'VALIDATION_ERROR',
-      'This file could not be read as a .docx. Export it as .docx (the older binary .doc format is not supported) and try again.');
-  }
+  const zip = openOfficeZip(buffer,
+    'This file could not be read as a .docx. Export it as .docx (the older binary .doc format is not supported) and try again.');
 
   const entry = zip.getEntry(DOCUMENT_PATH);
   if (!entry) {

@@ -71,7 +71,8 @@
 // erases the shell's <main>.
 // =============================================================================
 
-import { escapeHtml, errorMessage, icon } from '../ui.js';
+import { FOCUSABLE } from './focus.js';
+import { escapeHtml, errorMessage, icon, skeleton } from '../ui.js';
 
 /* ------------------------------------------------------------------- kinds */
 
@@ -189,9 +190,7 @@ export function stateMessage(error) {
 /** The short heading for an error, by code. */
 function errorTitle(error) {
   const code = error && error.code;
-  if (code && ERROR_TITLES[code]) return ERROR_TITLES[code];
-  if (code && ALREADY_DONE_TITLES[code]) return ALREADY_DONE_TITLES[code];
-  return 'That did not work';
+  return (code && (ERROR_TITLES[code] || ALREADY_DONE_TITLES[code])) || 'That did not work';
 }
 
 /**
@@ -241,9 +240,8 @@ function announce(message, { target = null, assertive = false } = {}) {
 
 /** Focusable descendants of `root`, in DOM order, skipping hidden controls. */
 function focusablesIn(root) {
-  const selector = 'a[href], button:not([disabled]), input:not([disabled]),'
-    + ' select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-  return Array.from(root.querySelectorAll(selector)).filter((el) => el.tabIndex >= 0 && !el.hidden);
+  return Array.from(root.querySelectorAll(FOCUSABLE))
+    .filter((el) => el.tabIndex >= 0 && !el.hidden);
 }
 
 /**
@@ -253,7 +251,7 @@ function focusablesIn(root) {
  *   default      → move it only if it was about to be stranded inside the host
  *                  the state replaced, so Tab order stays continuous.
  */
-function moveFocus(host, node, option, stranded) {
+function moveFocus(node, option, stranded) {
   if (option === false || typeof document === 'undefined') return;
   const shouldMove = option === true || stranded;
   if (!shouldMove) return;
@@ -275,8 +273,7 @@ function moveFocus(host, node, option, stranded) {
    The default variant is secondary (the same look as ui.js#errorState's
    retry), so a caller opts INTO emphasis rather than getting it by accident. */
 function buttonsMarkup(actions = []) {
-  const items = Array.isArray(actions) ? actions : [];
-  return items.map((action, index) => {
+  return actions.map((action, index) => {
     if (!action || !action.label) return '';
     const label = escapeHtml(action.label);
     const variant = action.danger ? 'danger' : (action.variant || 'secondary');
@@ -286,15 +283,8 @@ function buttonsMarkup(actions = []) {
   }).join('');
 }
 
-/** Actions for a content state (.empty-state-actions row). */
-function actionMarkup(actions = []) {
-  const buttons = buttonsMarkup(actions);
-  return buttons ? `<div class="empty-state-actions">${buttons}</div>` : '';
-}
-
 function wireActions(node, actions = []) {
-  const items = Array.isArray(actions) ? actions : [];
-  items.forEach((action, index) => {
+  actions.forEach((action, index) => {
     if (!action || action.href || typeof action.onClick !== 'function') return;
     const button = node.querySelector(`[data-state-action="${index}"]`);
     if (button) button.addEventListener('click', () => action.onClick());
@@ -378,7 +368,7 @@ export function renderState(host, kind, options = {}) {
   if (kind === 'loading') host.setAttribute('aria-busy', 'true');
   else host.removeAttribute('aria-busy');
 
-  moveFocus(host, node, opts.focus, stranded);
+  moveFocus(node, opts.focus, stranded);
 
   // Exactly one announcement per state change: either the block announces
   // itself (it carries a live role) or the live region does — never both.
@@ -440,7 +430,8 @@ function renderBlock(spec, kind, opts) {
   parts.push(extrasMarkup(kind, opts));
 
   const actions = Array.isArray(opts.actions) ? opts.actions : defaultActions(kind, opts, code);
-  parts.push(actionMarkup(actions));
+  const buttons = buttonsMarkup(actions);
+  if (buttons) parts.push(`<div class="empty-state-actions">${buttons}</div>`);
   node.innerHTML = parts.join('');
 
   wireActions(node, actions);
@@ -463,15 +454,11 @@ function defaultActions(kind, opts, code) {
 function extrasMarkup(kind, opts) {
   if (kind !== 'loading') return '';
   const lines = Math.max(0, Math.min(20, Math.floor(Number(opts.lines) || 0)));
-  const skeleton = lines > 0
-    ? `<div class="stack-2" aria-hidden="true">${
-      Array.from({ length: lines }, () => '<span class="skeleton skeleton-text"></span>').join('')
-    }</div>`
-    : '';
+  const bars = lines > 0 ? skeleton(lines) : '';
   const bar = opts.progress
     ? `<div class="progress is-indeterminate" role="progressbar" aria-label="${escapeHtml(opts.progressLabel || 'Working')}"></div>`
     : '';
-  return skeleton + bar;
+  return bars + bar;
 }
 
 /** Topic chips drawn from the student's OWN material (kind: 'abstain'). */

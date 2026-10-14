@@ -97,8 +97,6 @@ const titleCase = (value) => {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
 };
 
-const pluralDays = (days) => plural(days, 'day');
-
 /** One level badge. A missing/"unassessed" level reads "Not assessed yet". */
 function levelBadge(level, levelLabel) {
   const label = typeof levelLabel === 'string' && levelLabel ? levelLabel : LEVEL_LABELS[level];
@@ -121,6 +119,21 @@ function panel({ id, title, badge: badgeHtml = '', body = '', flush = false }) {
   return `<section class="panel"${labelled}>${heading}${bodyHtml}</section>`;
 }
 
+/* ------------------------------------------------------- the fixed sections */
+
+const PLAN_HEADING = 'planner-plan-heading';
+const ADVICE_HEADING = 'planner-advice-heading';
+
+/** The "Your plan" panel — id and title are fixed, so every caller agrees. */
+function planPanel(badgeHtml, bodyHtml) {
+  return panel({ id: PLAN_HEADING, title: 'Your plan', badge: badgeHtml, body: bodyHtml });
+}
+
+/** The "Next up" panel — same idea. */
+function nextUpPanel(badgeHtml, bodyHtml) {
+  return panel({ id: ADVICE_HEADING, title: 'Next up', badge: badgeHtml, body: bodyHtml });
+}
+
 /* --------------------------------------------------------- endpoint shaping */
 
 function shapeEndpoint(result, key) {
@@ -134,6 +147,13 @@ function shapeEndpoint(result, key) {
   if (isMissingEndpoint(error)) return { status: 'unavailable', error };
   return { status: 'error', error };
 }
+
+/**
+ * A topic counts as assessed only when the server sent real graded counts.
+ * `hasEvidence === false`, or no finite masteryPercent, means unassessed — which
+ * must never be painted as level 1 (see LEVEL_LABELS above).
+ */
+const isAssessed = (topic) => topic.hasEvidence !== false && Number.isFinite(topic.masteryPercent);
 
 /* ------------------------------------------------------------------- loading */
 
@@ -184,63 +204,43 @@ function planItemHtml(item, index) {
 function planReadyHtml(plan) {
   const items = Array.isArray(plan.items) ? plan.items : [];
   if (plan.hasEvidence === false || items.length === 0) {
-    return panel({
-      id: 'planner-plan-heading',
-      title: 'Your plan',
-      badge: badge('Nothing scheduled', 'badge-info'),
-      body: emptyState({
-        icon: 'calendar',
-        title: 'No plan for this period yet',
-        body: plan.summary
-          || 'The planner needs some quiz history before it can schedule anything. Take a short quiz and come back.',
-        action: `<a class="btn btn-primary btn-sm" href="quiz.html">${icon('clipboard', { size: 14 })} Take a quiz</a>`,
-      }),
-    });
+    return planPanel(badge('Nothing scheduled', 'badge-info'), emptyState({
+      icon: 'calendar',
+      title: 'No plan for this period yet',
+      body: plan.summary
+        || 'The planner needs some quiz history before it can schedule anything. Take a short quiz and come back.',
+      action: `<a class="btn btn-primary btn-sm" href="quiz.html">${icon('clipboard', { size: 14 })} Take a quiz</a>`,
+    }));
   }
 
   const horizon = Number(plan.horizonDays) > 0 ? Number(plan.horizonDays) : state.horizonDays;
-  return panel({
-    id: 'planner-plan-heading',
-    title: 'Your plan',
-    badge: badge(pluralDays(horizon), 'badge-info'),
-    body: `<div class="stack-4">
+  return planPanel(badge(plural(horizon, 'day'), 'badge-info'), `<div class="stack-4">
       ${plan.summary ? `<p class="muted text-sm">${escapeHtml(plan.summary)}</p>` : ''}
       <ol class="plan-days">${items.map(planItemHtml).join('')}</ol>
-    </div>`,
-  });
+    </div>`);
 }
 
 function planUnavailableHtml(endpoint) {
   const isError = endpoint.status === 'error';
   if (isError) {
-    return panel({
-      id: 'planner-plan-heading',
-      title: 'Your plan',
-      badge: badge('Could not load', 'badge-danger'),
-      body: `<div class="empty-state is-error">
+    return planPanel(badge('Could not load', 'badge-danger'), `<div class="empty-state is-error">
         <span class="empty-state-icon">${icon('alert', { size: 22 })}</span>
         <p class="empty-state-title">The planner could not be reached</p>
         <p class="empty-state-text">${escapeHtml(errorMessage(endpoint.error))}</p>
         <div class="empty-state-actions">
           <button type="button" class="btn btn-secondary btn-sm" data-retry-planner>${icon('refresh', { size: 14 })} Try again</button>
         </div>
-      </div>`,
-    });
+      </div>`);
   }
 
-  return panel({
-    id: 'planner-plan-heading',
-    title: 'Your plan',
-    badge: badge('Not available yet'),
-    body: `<div class="empty-state">
+  return planPanel(badge('Not available yet'), `<div class="empty-state">
       <span class="empty-state-icon">${icon('calendar', { size: 22 })}</span>
       <p class="empty-state-title">The study planner isn’t available yet</p>
       <p class="empty-state-text">The automatic planner is still being built on the server, so there is no
         schedule to show. This page will not invent study dates — a made-up timetable is worse than none.
         Everything below comes from real results in your learner model.</p>
       <p class="empty-state-text text-xs muted">Waiting on <span class="mono">GET /api/planner</span>, planned for a later wave.</p>
-    </div>`,
-  });
+    </div>`);
 }
 
 function planSectionHtml() {
@@ -251,8 +251,8 @@ function planSectionHtml() {
 /* -------------------------------------------------------- what to work on */
 
 function workRowHtml(topic, kind) {
-  const hasEvidence = topic.hasEvidence !== false && Number.isFinite(topic.masteryPercent);
-  const evidence = hasEvidence
+  const assessed = isAssessed(topic);
+  const evidence = assessed
     ? `${topic.masteryPercent}% mastery · ${topic.correct} of ${topic.total} correct`
     : 'Not assessed yet';
   const when = topic.lastPracticedAt ? ` · last practised ${formatRelative(topic.lastPracticedAt)}` : '';
@@ -388,7 +388,7 @@ function fallbackAdvice(progress) {
 }
 
 function fallbackReason(topic) {
-  if (topic.hasEvidence === false || !Number.isFinite(topic.masteryPercent)) {
+  if (!isAssessed(topic)) {
     return 'No graded answers for this topic yet. A short diagnostic quiz sets its starting level.';
   }
   const percent = topic.masteryPercent;
@@ -418,21 +418,16 @@ function fallbackAdviceHtml(fallback, noteHtml) {
   const sourceBadge = badge('From your progress');
 
   if (!fallback) {
-    return panel({
-      id: 'planner-advice-heading',
-      title: 'Next up',
-      badge: sourceBadge,
-      body: `<div class="stack-3">
+    return nextUpPanel(sourceBadge, `<div class="stack-3">
         <p class="muted text-sm">There is no practice history yet, so there is nothing to recommend. Take a
           short quiz and your first topic will appear here.</p>
         <a class="btn btn-primary btn-sm" href="quiz.html">Take a quiz</a>
       </div>
-      ${noteHtml}`,
-    });
+      ${noteHtml}`);
   }
 
-  const hasEvidence = fallback.hasEvidence !== false && Number.isFinite(fallback.masteryPercent);
-  const evidence = hasEvidence
+  const assessed = isAssessed(fallback);
+  const evidence = assessed
     ? `${fallback.masteryPercent}% mastery · ${fallback.correct} of ${fallback.total} correct`
     : 'Not assessed yet';
   const when = fallback.lastPracticedAt ? ` · ${formatRelative(fallback.lastPracticedAt)}` : '';
@@ -442,11 +437,7 @@ function fallbackAdviceHtml(fallback, noteHtml) {
       </span>`
     : '';
 
-  return panel({
-    id: 'planner-advice-heading',
-    title: 'Next up',
-    badge: sourceBadge,
-    body: `<div class="stack-3">
+  return nextUpPanel(sourceBadge, `<div class="stack-3">
       ${selectedChip}
       <h3 class="advice-topic">${escapeHtml(fallback.topic)}</h3>
       <p class="advice-reason">${escapeHtml(fallbackReason(fallback))}</p>
@@ -455,11 +446,10 @@ function fallbackAdviceHtml(fallback, noteHtml) {
         ${fallback.difficulty ? badge(`Suggested difficulty: ${fallback.difficulty}`) : ''}
       </div>
       <p class="muted text-xs">${escapeHtml(`${evidence}${when}`)}</p>
-      <a class="btn btn-primary btn-sm" href="quiz.html">${hasEvidence ? 'Practise this topic' : 'Take a diagnostic quiz'}</a>
+      <a class="btn btn-primary btn-sm" href="quiz.html">${assessed ? 'Practise this topic' : 'Take a diagnostic quiz'}</a>
       ${alternativesHtml(fallback.alternatives)}
     </div>
-    ${noteHtml}`,
-  });
+    ${noteHtml}`);
 }
 
 function liveAdviceHtml(advice) {
@@ -467,17 +457,12 @@ function liveAdviceHtml(advice) {
 
   if (advice.hasEvidence === false || !advice.evidence) {
     const scope = advice.topic ? `«${escapeHtml(advice.topic)}»` : 'this topic';
-    return panel({
-      id: 'planner-advice-heading',
-      title: 'Next up',
-      badge: sourceBadge,
-      body: `<div class="stack-3">
+    return nextUpPanel(sourceBadge, `<div class="stack-3">
         <p>No practice history for ${scope} yet.</p>
         <p class="muted text-sm">${escapeHtml(advice.reason || 'Take a diagnostic quiz to set the starting level for this topic.')}</p>
         <a class="btn btn-primary btn-sm" href="quiz.html">Take a diagnostic quiz</a>
         ${alternativesHtml(advice.alternatives)}
-      </div>`,
-    });
+      </div>`);
   }
 
   const evidence = advice.evidence;
@@ -486,11 +471,7 @@ function liveAdviceHtml(advice) {
   const meta = `${evidence.masteryPercent}% mastery · ${evidence.correct} of ${evidence.total} correct`
     + (evidence.lastPracticedAt ? ` · last practised ${formatRelative(evidence.lastPracticedAt)}` : '');
 
-  return panel({
-    id: 'planner-advice-heading',
-    title: 'Next up',
-    badge: sourceBadge,
-    body: `<div class="stack-3">
+  return nextUpPanel(sourceBadge, `<div class="stack-3">
       <h3 class="advice-topic">${escapeHtml(advice.topic || 'Your next topic')}</h3>
       <p class="advice-reason">${escapeHtml(advice.reason || '')}</p>
       <div class="cluster-2">
@@ -502,33 +483,27 @@ function liveAdviceHtml(advice) {
       <a class="btn btn-primary btn-sm" href="quiz.html">${escapeHtml(ACTION_CTA[advice.action] || 'Practise this topic')}</a>
       ${alternativesHtml(advice.alternatives)}
       ${state.adviceTopic ? `<button type="button" class="btn btn-ghost btn-sm" data-advice-reset>${icon('chevronLeft', { size: 14 })} Overall recommendation</button>` : ''}
-    </div>`,
-  });
+    </div>`);
 }
 
 function adviceErrorHtml(error) {
-  return panel({
-    id: 'planner-advice-heading',
-    title: 'Next up',
-    badge: badge('Error', 'badge-danger'),
-    body: `<div class="stack-3">
+  return nextUpPanel(badge('Error', 'badge-danger'), `<div class="stack-3">
       <p class="muted text-sm">${escapeHtml(errorMessage(error))}</p>
       <button type="button" class="btn btn-secondary btn-sm" data-retry-advice>${icon('refresh', { size: 14 })} Try again</button>
-    </div>`,
-  });
+    </div>`);
 }
 
 function advicePanelHtml() {
   if (state.advice.status === 'ok' && state.advice.data) return liveAdviceHtml(state.advice.data);
   if (state.advice.status === 'loading') {
-    return panel({ id: 'planner-advice-heading', title: 'Next up', body: spinner('Working out your next step…') });
+    return nextUpPanel('', spinner('Working out your next step…'));
   }
 
   const progress = state.progress.status === 'ok' ? state.progress.data : null;
   if (!progress) {
     return state.advice.status === 'error'
       ? adviceErrorHtml(state.advice.error)
-      : panel({ id: 'planner-advice-heading', title: 'Next up', body: '<p class="muted text-sm">Your recommendation will appear here once your progress loads.</p>' });
+      : nextUpPanel('', '<p class="muted text-sm">Your recommendation will appear here once your progress loads.</p>');
   }
 
   const noteHtml = state.advice.status === 'error'
@@ -662,15 +637,11 @@ function render() {
   // failure takes the main column and offers a retry; a server that does not
   // expose the route yet gets an equally honest "nothing to show" state.
   if (state.progress.status !== 'ok') {
-    main.replaceChildren(
-      state.progress.status === 'error'
-        ? errorState(state.progress.error, () => load(), { title: 'Could not load your progress' })
-        : (() => {
-            const node = document.createElement('div');
-            node.innerHTML = noProgressHtml();
-            return node;
-          })(),
-    );
+    if (state.progress.status === 'error') {
+      main.replaceChildren(errorState(state.progress.error, () => load(), { title: 'Could not load your progress' }));
+    } else {
+      main.innerHTML = noProgressHtml();
+    }
     aside.innerHTML = advicePanelHtml();
     return;
   }
@@ -709,32 +680,40 @@ function wireEvents() {
 
 /* -------------------------------------------------------------------- load */
 
-async function loadPlanner() {
-  state.planner = { status: 'loading' };
+function plannerPath() {
+  return `/api/planner?days=${encodeURIComponent(state.horizonDays)}`;
+}
+
+function advicePath() {
+  return state.adviceTopic
+    ? `/api/advice?topic=${encodeURIComponent(state.adviceTopic)}`
+    : '/api/advice';
+}
+
+/**
+ * Refresh ONE slot: show its loading state, fetch, then record the outcome.
+ * A 404 is "the server does not have this route yet" (an expected state, not a
+ * failure), which is what keeps this page honest while Wave 4 is unfinished.
+ */
+async function refreshEndpoint(slot, path, key) {
+  state[slot] = { status: 'loading' };
   render();
-  const path = `/api/planner?days=${encodeURIComponent(state.horizonDays)}`;
   try {
     const data = await apiGet(path, { timeoutMs: 15000 });
-    state.planner = data && data.plan ? { status: 'ok', data: data.plan } : { status: 'unavailable' };
+    const payload = data && data[key] ? data[key] : null;
+    state[slot] = payload ? { status: 'ok', data: payload } : { status: 'unavailable' };
   } catch (error) {
-    state.planner = isMissingEndpoint(error) ? { status: 'unavailable', error } : { status: 'error', error };
+    state[slot] = isMissingEndpoint(error) ? { status: 'unavailable', error } : { status: 'error', error };
   }
   render();
 }
 
+async function loadPlanner() {
+  return refreshEndpoint('planner', plannerPath(), 'plan');
+}
+
 async function loadAdvice() {
-  state.advice = { status: 'loading' };
-  render();
-  const path = state.adviceTopic
-    ? `/api/advice?topic=${encodeURIComponent(state.adviceTopic)}`
-    : '/api/advice';
-  try {
-    const data = await apiGet(path, { timeoutMs: 15000 });
-    state.advice = data && data.advice ? { status: 'ok', data: data.advice } : { status: 'unavailable' };
-  } catch (error) {
-    state.advice = isMissingEndpoint(error) ? { status: 'unavailable', error } : { status: 'error', error };
-  }
-  render();
+  return refreshEndpoint('advice', advicePath(), 'advice');
 }
 
 async function load() {
@@ -745,8 +724,8 @@ async function load() {
   render();
 
   const [plannerResult, adviceResult, progressResult] = await Promise.allSettled([
-    apiGet(`/api/planner?days=${encodeURIComponent(state.horizonDays)}`, { timeoutMs: 15000 }),
-    apiGet('/api/advice', { timeoutMs: 15000 }),
+    apiGet(plannerPath(), { timeoutMs: 15000 }),
+    apiGet(advicePath(), { timeoutMs: 15000 }),
     apiGet('/api/learner/progress', { timeoutMs: 20000 }),
   ]);
 

@@ -263,7 +263,7 @@ function collect() {
       },
       device: {
         cores: navigator.hardwareConcurrency ?? null,
-        memoryGb: metric(navigator.deviceMemory) ?? null,
+        memoryGb: metric(navigator.deviceMemory),
         connection: connection.effectiveType ?? null,
         saveData: connection.saveData === true,
         online: navigator.onLine !== false,

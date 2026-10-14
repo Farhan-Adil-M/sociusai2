@@ -175,21 +175,24 @@ export async function retrieve(question, { sourceIds = [], sourceKinds = [], k =
     userId: owner,
   });
 
-  let hits = (Array.isArray(fetched) ? fetched : [])
+  const candidates = (Array.isArray(fetched) ? fetched : [])
     .filter((hit) => ownedBy(hit, owner))
     .map(neutralizeDelimiters);
-  if (Array.isArray(sourceKinds) && sourceKinds.length > 0) {
-    hits = hits.filter((hit) => sourceKinds.includes(kindOf(hit)));
-  }
-  hits = dedupeHits(hits);
-  hits = filterByEvidence(hits, minScore);
-  return hits.slice(0, limit);
+  const scoped = Array.isArray(sourceKinds) && sourceKinds.length > 0
+    ? candidates.filter((hit) => sourceKinds.includes(kindOf(hit)))
+    : candidates;
+  return filterByEvidence(dedupeHits(scoped), minScore).slice(0, limit);
 }
 
 // ---- citations -------------------------------------------------------------
 
 function pad(number) {
   return String(Number(number)).padStart(2, '0');
+}
+
+/** `m:ss` / `h:mm:ss` parts, zero-padded into `hh:mm:ss`. */
+function formatClock(first, second, third) {
+  return third === undefined ? `${pad(0)}:${pad(first)}:${second}` : `${pad(first)}:${second}:${third}`;
 }
 
 /** "3:12" / "00:03:12" / seconds → "hh:mm:ss"; null when unusable. */
@@ -202,7 +205,7 @@ function normalizeTimecode(value) {
   const match = value.replace(/[[\]]/g, '').match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (!match) return null;
   const [, first, second, third] = match;
-  return third === undefined ? `${pad(0)}:${pad(first)}:${second}` : `${pad(first)}:${second}:${third}`;
+  return formatClock(first, second, third);
 }
 
 /** The transcript chunker keeps `[hh:mm:ss]` markers in the stored text; that
@@ -211,7 +214,7 @@ function timecodeFromText(text) {
   const match = /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]/.exec(String(text ?? ''));
   if (!match) return null;
   const [, first, second, third] = match;
-  return third === undefined ? `${pad(0)}:${pad(first)}:${second}` : `${pad(first)}:${second}:${third}`;
+  return formatClock(first, second, third);
 }
 
 /**
@@ -259,10 +262,7 @@ export function toCitation(hit) {
 export async function assertSourcesExist(db, sourceIds, userId) {
   const owner = requireUserId(userId, 'load study material');
   if (!Array.isArray(sourceIds) || sourceIds.length === 0) return;
-  const seen = new Set();
-  for (const id of sourceIds) {
-    if (seen.has(id)) continue;
-    seen.add(id);
+  for (const id of new Set(sourceIds)) {
     // Ownership separates "someone else's source" from "no source": both 404.
     const row = await db.get('SELECT id FROM sources WHERE id = ? AND user_id = ?', id, owner);
     if (!row) throw new ApiError(404, 'SOURCE_NOT_FOUND', `Source "${id}" does not exist.`);
@@ -299,16 +299,13 @@ export async function resolveScope(db, { sessionId, sourceIds = [] } = {}, userI
   }
 
   const allowed = new Set(owned);
-  if (Array.isArray(sourceIds) && sourceIds.length > 0) {
-    for (const id of sourceIds) {
-      if (!allowed.has(id)) {
-        throw new ApiError(400, 'VALIDATION_ERROR', 'sourceIds must belong to the selected study session.');
-      }
-    }
-    return { sourceIds: [...sourceIds], session };
+  // With no explicit sourceIds the session's own sources are the scope, so the
+  // membership check below is a no-op for them.
+  const requested = Array.isArray(sourceIds) && sourceIds.length > 0 ? sourceIds : owned;
+  if (requested.some((id) => !allowed.has(id))) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'sourceIds must belong to the selected study session.');
   }
-
-  return { sourceIds: owned, session };
+  return { sourceIds: [...requested], session };
 }
 
 // ---- shared request validation (used by tutor/quiz/flashcards routes) ----

@@ -21,6 +21,7 @@
 // =============================================================================
 
 import { apiPatch, apiPost } from '../api.js';
+import { FOCUSABLE, trapTab } from './focus.js';
 import { escapeHtml, errorMessage, icon } from '../ui.js';
 
 /** The contract's fixed category enum, with labels for humans. */
@@ -43,8 +44,6 @@ export function categoryLabel(value) {
 // One reusable `.modal` element (components.css owns the look; this file owns
 // the behaviour: focus in on open, focus back on close, Escape closes, Tab is
 // trapped inside the dialog, clicking the backdrop closes).
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]),'
-  + ' select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 let overlay = null;
 let previousFocus = null;
@@ -69,32 +68,7 @@ function openOverlay({ html, onEscape }) {
   node.hidden = false;
   previousFocus = document.activeElement;
 
-  keyHandler = (event) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onEscape();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const items = Array.from(node.querySelectorAll(FOCUSABLE));
-    if (items.length === 0) return;
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (!node.contains(document.activeElement)) {
-      event.preventDefault();
-      first.focus();
-      return;
-    }
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-      return;
-    }
-    if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
+  keyHandler = trapTab(node, onEscape);
   document.addEventListener('keydown', keyHandler, true);
 
   const dialog = node.querySelector('.modal-dialog');

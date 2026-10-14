@@ -32,7 +32,7 @@ import { parseJsonLoose } from './quizService.js';
 import { renderPrompt, ONBOARDING_INTERVIEW } from './prompts.js';
 import { config } from '../config.js';
 import { ApiError } from '../middleware/errors.js';
-import { nowIso, loadProfileRow, saveProfileRow } from '../store/sqlite.js';
+import { nowIso, loadProfileRow, parseJsonObject, saveProfileRow } from '../store/sqlite.js';
 // Shared v1.4 enums come from constants.js — the single source of truth
 // (routes never get imported from services).
 import { PURPOSES, EXPLANATION_STYLES } from '../constants.js';
@@ -123,15 +123,6 @@ function buildMessages(fields, transcript, strict) {
 
 // ---------- defensive parsing ----------
 
-function parseFieldsJson(text) {
-  try {
-    const value = JSON.parse(text ?? '{}');
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  } catch {
-    return {};
-  }
-}
-
 // A corrupt transcript must never crash a turn — filter to well-formed entries.
 function parseTranscriptJson(text) {
   try {
@@ -159,34 +150,42 @@ function normalizeTurn(raw) {
 
 // ---------- whitelist extraction (invalid items are dropped SILENTLY) ----------
 
-function cleanInterests(items, source) {
+/**
+ * Build each item through `build` (null = unusable), cap the list, and return
+ * null when nothing survived so the caller leaves the stored value untouched.
+ */
+function cleanList(items, build, cap) {
   if (!Array.isArray(items)) return null;
-  const seen = new Set();
   const out = [];
   for (const item of items) {
-    const label = typeof item === 'string' ? item.trim() : typeof item?.label === 'string' ? item.label.trim() : '';
-    if (label.length < 1 || label.length > INTEREST_MAX_CHARS) continue;
-    const key = label.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ label, source });
-    if (out.length >= MAX_INTERESTS) break;
+    const value = build(item);
+    if (value === null) continue;
+    out.push(value);
+    if (out.length >= cap) break;
   }
   return out.length ? out : null;
 }
 
+function cleanInterests(items, source) {
+  const seen = new Set();
+  return cleanList(items, (item) => {
+    const label = typeof item === 'string' ? item.trim() : typeof item?.label === 'string' ? item.label.trim() : '';
+    if (label.length < 1 || label.length > INTEREST_MAX_CHARS) return null;
+    const key = label.toLowerCase(); // case-insensitive dedupe
+    if (seen.has(key)) return null;
+    seen.add(key);
+    return { label, source };
+  }, MAX_INTERESTS);
+}
+
 function cleanGoals(items) {
-  if (!Array.isArray(items)) return null;
-  const out = [];
-  for (const item of items) {
+  return cleanList(items, (item) => {
     const label = typeof item?.label === 'string' ? item.label.trim() : '';
-    if (label.length < 1 || label.length > 120) continue;
+    if (label.length < 1 || label.length > 120) return null;
     let deadline = item?.deadline ?? null;
     if (deadline !== null && !(typeof deadline === 'string' && DEADLINE_RE.test(deadline))) deadline = null;
-    out.push({ label, deadline, source: 'stated' });
-    if (out.length >= MAX_GOALS) break;
-  }
-  return out.length ? out : null;
+    return { label, deadline, source: 'stated' };
+  }, MAX_GOALS);
 }
 
 // learner_subjects is keyed by subject — case-insensitive dedupe, last wins.
@@ -205,6 +204,41 @@ function cleanSubjects(items) {
   return clean.size ? [...clean.values()] : null;
 }
 
+/** Stated extraction on `fields`: a presented value REPLACES what was stored,
+ *  junk is dropped silently. Returns the whitelisted subjects, or null when the
+ *  student stated none (learner_subjects then stays untouched). */
+function applyStatedExtract(fields, extract) {
+  const statedInterests = cleanInterests(extract.interests, 'stated');
+  if (statedInterests) fields.interests = statedInterests;
+  const statedGoals = cleanGoals(extract.goals);
+  if (statedGoals) fields.goals = statedGoals;
+  if (typeof extract.purpose === 'string' && PURPOSES.has(extract.purpose)) fields.purpose = extract.purpose;
+  if (typeof extract.explanationStyle === 'string' && EXPLANATION_STYLES.has(extract.explanationStyle)) {
+    fields.preferences.explanationStyle = { value: extract.explanationStyle, source: 'stated' };
+  }
+  return cleanSubjects(extract.subjects); // replaces learner_subjects entirely
+}
+
+// Inferred guesses: never overwrite a stated answer, and never touch goals,
+// purpose or subjects — those only change when stated.
+function applyInferredGuesses(fields, inferred) {
+  if (!fields.preferences.explanationStyle
+    && typeof inferred.explanationStyle === 'string'
+    && EXPLANATION_STYLES.has(inferred.explanationStyle)) {
+    fields.preferences.explanationStyle = { value: inferred.explanationStyle, source: 'inferred' };
+  }
+  const guessed = cleanInterests(inferred.interests, 'inferred');
+  if (!guessed) return;
+  const known = new Set(fields.interests.map((i) => String(i?.label ?? '').toLowerCase()));
+  for (const item of guessed) {
+    const key = item.label.toLowerCase();
+    if (known.has(key)) continue;
+    known.add(key);
+    fields.interests.push({ label: item.label, source: 'inferred' });
+    if (fields.interests.length >= MAX_INTERESTS) break;
+  }
+}
+
 // ---------- the one public function ----------
 
 export async function turnOnboarding(db, rawMessage, { ai, userId = 'default' } = {}) {
@@ -217,7 +251,7 @@ export async function turnOnboarding(db, rawMessage, { ai, userId = 'default' } 
   }
 
   // ---- everything below happens in memory until the single final write ----
-  const fields = parseFieldsJson(row?.fields_json);
+  const fields = parseJsonObject(row?.fields_json);
   fields.interests = Array.isArray(fields.interests) ? fields.interests : [];
   fields.goals = Array.isArray(fields.goals) ? fields.goals : [];
   fields.preferences = fields.preferences && typeof fields.preferences === 'object' ? fields.preferences : {};
@@ -269,36 +303,11 @@ export async function turnOnboarding(db, rawMessage, { ai, userId = 'default' } 
   }
 
   // ---- stated extraction (replaces whole values; junk dropped silently) ----
-  const ex = model.extract;
-  const statedInterests = cleanInterests(ex.interests, 'stated');
-  if (statedInterests) fields.interests = statedInterests;
-  const statedGoals = cleanGoals(ex.goals);
-  if (statedGoals) fields.goals = statedGoals;
-  if (typeof ex.purpose === 'string' && PURPOSES.has(ex.purpose)) fields.purpose = ex.purpose;
-  if (typeof ex.explanationStyle === 'string' && EXPLANATION_STYLES.has(ex.explanationStyle)) {
-    fields.preferences.explanationStyle = { value: ex.explanationStyle, source: 'stated' };
-  }
-  const subjects = cleanSubjects(ex.subjects); // replaces learner_subjects entirely
+  const subjects = applyStatedExtract(fields, model.extract);
 
   // ---- inferred guesses (never overwrite a stated answer; never touch
   // goals, purpose or subjects — those only change when stated) ----
-  const inf = model.inferred;
-  if (!fields.preferences.explanationStyle
-    && typeof inf.explanationStyle === 'string'
-    && EXPLANATION_STYLES.has(inf.explanationStyle)) {
-    fields.preferences.explanationStyle = { value: inf.explanationStyle, source: 'inferred' };
-  }
-  const inferredInterests = cleanInterests(inf.interests, 'inferred');
-  if (inferredInterests) {
-    const known = new Set(fields.interests.map((i) => String(i?.label ?? '').toLowerCase()));
-    for (const item of inferredInterests) {
-      const key = item.label.toLowerCase();
-      if (known.has(key)) continue;
-      known.add(key);
-      fields.interests.push({ label: item.label, source: 'inferred' });
-      if (fields.interests.length >= MAX_INTERESTS) break;
-    }
-  }
+  applyInferredGuesses(fields, model.inferred);
 
   // ---- assistant turn, count, finish check ----
   transcript.push({ role: 'assistant', content: model.reply });

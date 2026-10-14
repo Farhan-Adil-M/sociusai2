@@ -18,25 +18,40 @@ const MAX_SESSIONS_LISTED = 30;
 
 // ---------- pure validation (exported for tests) ----------
 
+// The source with this id for this user, or a 404. Another user's source id is
+// exactly "does not exist", so the lookup and the error live in one place.
+async function loadOwnedSource(db, sourceId, userId) {
+  const source = await db.get('SELECT * FROM sources WHERE id = ? AND user_id = ?', sourceId, userId);
+  if (!source) throw new ApiError(404, 'SOURCE_NOT_FOUND', `Source "${sourceId}" does not exist.`);
+  return source;
+}
+
+// A model-proposed new session, or null when it breaks the strict schema
+// (unknown category, title not 2–80 chars, subject over 120 chars). Numeric-only
+// tags ("42") are junk and dropped; an empty result falls back to "misc".
+function readNewSession(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const category = CATEGORIES.has(raw.category) ? raw.category : null;
+  const title = typeof raw.title === 'string' ? raw.title.trim() : '';
+  const subject = typeof raw.subject === 'string' ? raw.subject.trim() : '';
+  if (!category || title.length < 2 || title.length > 80 || subject.length > 120) return null;
+
+  const tags = (Array.isArray(raw.tags) ? raw.tags : [])
+    .map((tag) => String(tag).trim().toLowerCase())
+    .filter(Boolean)
+    .slice(0, 6)
+    .filter((tag) => /[a-z]/i.test(tag)) // drop numeric junk like "42"
+    .slice(0, 5);
+  return { category, title, subject, tags: tags.length > 0 ? tags : ['misc'] };
+}
+
 export function normalizeSuggestion(raw, sessions) {
   if (!raw || typeof raw !== 'object') return null;
   const known = new Map(sessions.map((s) => [s.id, s]));
   const matchSessionId = typeof raw.matchSessionId === 'string' && known.has(raw.matchSessionId)
     ? raw.matchSessionId
     : null;
-
-  let newSession = null;
-  if (raw.newSession && typeof raw.newSession === 'object') {
-    const category = CATEGORIES.has(raw.newSession.category) ? raw.newSession.category : null;
-    const title = typeof raw.newSession.title === 'string' ? raw.newSession.title.trim() : '';
-    const subject = typeof raw.newSession.subject === 'string' ? raw.newSession.subject.trim() : '';
-    const tags = Array.isArray(raw.newSession.tags)
-      ? raw.newSession.tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean).slice(0, 6)
-      : [];
-    if (category && title.length >= 2 && title.length <= 80 && subject.length <= 120) {
-      newSession = { category, title, subject, tags };
-    }
-  }
+  const newSession = readNewSession(raw.newSession);
 
   // Exactly one of the two branches must be present — strict schema: both or
   // neither is invalid model output and gets retried.
@@ -51,8 +66,6 @@ export function normalizeSuggestion(raw, sessions) {
   // Server-side duplicate guard: if the proposed new session's title matches an
   // existing active session (case-insensitive), point at that session instead.
   if (newSession) {
-    const tags = newSession.tags.filter((tag) => /[a-z]/i.test(tag)).slice(0, 5); // drop numeric junk like "42"
-    newSession.tags = tags.length > 0 ? tags : ['misc'];
     const duplicate = sessions.find(
       (s) => s.status === 'active' && s.title.trim().toLowerCase() === newSession.title.toLowerCase(),
     );
@@ -64,9 +77,7 @@ export function normalizeSuggestion(raw, sessions) {
 
 export async function suggestOrganization(db, { sourceId, description, userId = 'default' }, { chat } = {}) {
   const chatFn = chat ?? chatCompletion;
-  // Ownership: another user's source id here is exactly "does not exist".
-  const source = await db.get('SELECT * FROM sources WHERE id = ? AND user_id = ?', sourceId, userId);
-  if (!source) throw new ApiError(404, 'SOURCE_NOT_FOUND', `Source "${sourceId}" does not exist.`);
+  const source = await loadOwnedSource(db, sourceId, userId);
 
   const sample = (await db.all('SELECT text FROM source_segments WHERE source_id = ? ORDER BY seg_index LIMIT 3', sourceId))
     .map((row) => row.text)
@@ -97,12 +108,12 @@ export async function suggestOrganization(db, { sourceId, description, userId = 
   let suggestion = null;
   try {
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !suggestion; attempt++) {
-      const content = await chatFn([
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
       // Assessment-grade model: the chat model (lightning) repeatedly returned
       // empty content live on this classification prompt; the super-120b model
       // has been reliable at producing strict JSON all through the project.
+      const content = await chatFn([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
       ], { model: config.nimAssessModel, maxTokens: 1200 });
       suggestion = normalizeSuggestion(parseJsonLoose(content), sessions);
     }
@@ -127,9 +138,28 @@ export async function suggestOrganization(db, { sourceId, description, userId = 
   };
 }
 
+// The session a stored suggestion points at: the matched one when it still
+// exists, else the proposed new session — reusing an active duplicate created
+// since the suggestion was stored. User-scoped throughout.
+async function resolveTargetSession(db, stored, userId) {
+  if (stored.matchSessionId) return stored.matchSessionId;
+
+  const duplicate = await db.get(
+    "SELECT id FROM study_sessions WHERE status = 'active' AND lower(trim(title)) = lower(?) AND user_id = ?",
+    stored.newSession.title, userId,
+  );
+  if (duplicate) return duplicate.id;
+
+  const sessionId = newId('ses');
+  const now = nowIso();
+  await db.run(`INSERT INTO study_sessions (id, user_id, title, category, description, tags_json, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+  sessionId, userId, stored.newSession.title, stored.newSession.category, stored.newSession.subject || null, JSON.stringify(stored.newSession.tags), now, now);
+  return sessionId;
+}
+
 export async function acceptOrganization(db, { sourceId, userId = 'default' }) {
-  const source = await db.get('SELECT * FROM sources WHERE id = ? AND user_id = ?', sourceId, userId);
-  if (!source) throw new ApiError(404, 'SOURCE_NOT_FOUND', `Source "${sourceId}" does not exist.`);
+  const source = await loadOwnedSource(db, sourceId, userId);
 
   let stored = null;
   try { stored = JSON.parse(source.suggestion_json || 'null'); } catch { stored = null; }
@@ -137,22 +167,7 @@ export async function acceptOrganization(db, { sourceId, userId = 'default' }) {
     throw new ApiError(400, 'VALIDATION_ERROR', 'Ask for an organisation suggestion first, then accept it.');
   }
 
-  let sessionId = null;
-  if (stored.matchSessionId) {
-    sessionId = stored.matchSessionId;
-  } else {
-    // Re-run the duplicate guard: something may have been created since.
-    const duplicate = await db.get("SELECT id FROM study_sessions WHERE status = 'active' AND lower(trim(title)) = lower(?) AND user_id = ?", stored.newSession.title, userId);
-    if (duplicate) {
-      sessionId = duplicate.id;
-    } else {
-      sessionId = newId('ses');
-      const now = nowIso();
-      await db.run(`INSERT INTO study_sessions (id, user_id, title, category, description, tags_json, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-        sessionId, userId, stored.newSession.title, stored.newSession.category, stored.newSession.subject || null, JSON.stringify(stored.newSession.tags), now, now);
-    }
-  }
+  const sessionId = await resolveTargetSession(db, stored, userId);
 
   // Accepting is an explicit user action → counts as a manual choice, so later
   // suggestions are shown as "applicable: false" until the user acts again.

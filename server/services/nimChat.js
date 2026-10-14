@@ -23,11 +23,12 @@ import { complete } from './aiRouter.js';
  *   - `task`        routing task (default 'tutor'); see aiRouter.TASKS.
  *   - `model`       explicit model override — skips task routing, keeps the
  *                   caller's own choice (existing services pass one).
- *   - `temperature`, `maxTokens` generation controls.
+ *   - `temperature`, `maxTokens` generation controls; the router owns their
+ *                   defaults, so omitting them here changes nothing.
  * @returns {Promise<string>} the trimmed answer.
  * @throws {ApiError} `NIM_TIMEOUT` (504) or `NIM_ERROR` (502) — the same codes
  *   and user-facing messages this module has always produced.
  */
-export async function chatCompletion(messages, { task = 'tutor', model, temperature = 0.2, maxTokens = 1200 } = {}) {
+export async function chatCompletion(messages, { task = 'tutor', model, temperature, maxTokens } = {}) {
   return complete(task, messages, { model, temperature, maxTokens });
 }

@@ -45,7 +45,9 @@ const GRADE_BUTTONS = [
   { key: 'good', label: 'Good', hint: 'Recalled it', kbd: '3' },
   { key: 'easy', label: 'Easy', hint: 'Too easy', kbd: '4' },
 ];
-const GRADE_LABEL = { again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy' };
+// The schedule strip and the live announcement read the label off the button
+// list, so a grade can never be spelled two different ways.
+const GRADE_LABEL = Object.fromEntries(GRADE_BUTTONS.map((grade) => [grade.key, grade.label]));
 const KEY_TO_GRADE = { 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' };
 
 /* ------------------------------------------------------------------- state */
@@ -75,12 +77,12 @@ function announce(text) {
 
 /** "in 6 days · 12 Nov 2026" from a server-returned review schedule. */
 function nextDueText(schedule) {
-  if (!schedule) return 'now';
+  if (!schedule || !schedule.dueAt) return 'now';
   const days = Number(schedule.intervalDays);
-  if (schedule.dueAt && Number.isFinite(days) && days > 0) {
+  if (Number.isFinite(days) && days > 0) {
     return `in ${plural(Math.round(days), 'day')} · ${formatDate(schedule.dueAt)}`;
   }
-  return schedule.dueAt ? formatDate(schedule.dueAt) : 'now';
+  return formatDate(schedule.dueAt);
 }
 
 /* -------------------------------------------------------------- loading data */
@@ -212,6 +214,21 @@ function deckTile(deck) {
   const reviewed = deck.lastReviewedAt
     ? `Reviewed ${escapeHtml(formatRelative(deck.lastReviewedAt))}`
     : 'Not studied yet';
+  // One decision — "is anything due?" — drives the badge and the study button,
+  // so the two can never disagree about the same deck.
+  const status = due > 0
+    ? {
+      badge: `<span class="badge badge-info">${plural(due, 'card')} due</span>`,
+      variant: 'btn-primary',
+      label: `Study ${due}`,
+      disabled: '',
+    }
+    : {
+      badge: '<span class="badge badge-success">Caught up</span>',
+      variant: 'btn-secondary',
+      label: 'Nothing due',
+      disabled: 'disabled',
+    };
   return `<article class="card deck-card">
     <div class="deck-card__head">
       <h3 class="deck-card__title truncate" title="${escapeHtml(topic)}">${escapeHtml(topic)}</h3>
@@ -220,15 +237,13 @@ function deckTile(deck) {
     </div>
     <p class="deck-card__meta muted text-xs">${session}${plural(cards, 'card')} · ${known} known</p>
     <div class="cluster cluster-2">
-      ${due > 0
-        ? `<span class="badge badge-info">${plural(due, 'card')} due</span>`
-        : '<span class="badge badge-success">Caught up</span>'}
+      ${status.badge}
       <span class="text-xs muted">${reviewed}</span>
     </div>
     <div class="deck-card__actions">
-      <button type="button" class="btn btn-sm ${due > 0 ? 'btn-primary' : 'btn-secondary'}"
-              data-study-deck="${escapeHtml(deck.id)}" ${due > 0 ? '' : 'disabled'}>
-        ${due > 0 ? `Study ${due}` : 'Nothing due'}
+      <button type="button" class="btn btn-sm ${status.variant}"
+              data-study-deck="${escapeHtml(deck.id)}" ${status.disabled}>
+        ${status.label}
       </button>
     </div>
   </article>`;
@@ -342,6 +357,39 @@ function scheduleStripHtml() {
   </div>`;
 }
 
+/** "Card 2 of 8 · 6 cards left" plus the review progress bar. */
+function studyProgressHtml(study) {
+  const remaining = study.total - study.index;
+  const pct = study.total ? Math.round((study.index / study.total) * 100) : 0;
+  return `<div class="study__progress">
+          <div class="progress-label">
+            <span>Card <strong>${study.index + 1}</strong> of <strong>${study.total}</strong></span>
+            <span>${escapeHtml(plural(remaining, 'card'))} left</span>
+          </div>
+          <div class="progress" role="progressbar" aria-label="Review progress"
+               aria-valuemin="0" aria-valuemax="${study.total}" aria-valuenow="${study.index}">
+            <div class="progress-bar" style="width:${pct}%"></div>
+          </div>
+        </div>`;
+}
+
+/** The card itself: prompt always, answer only once revealed, with citations. */
+function studyCardHtml(card, revealed) {
+  const citations = Array.isArray(card.citations) ? card.citations : [];
+  return `<article class="flashcard">
+          <div class="flashcard__side">
+            <p class="eyebrow">Prompt</p>
+            <div class="prose">${markdownLite(card.front)}</div>
+          </div>
+          <div class="flashcard__answer" data-answer tabindex="-1"${revealed ? '' : ' hidden'}>
+            <hr class="divider">
+            <p class="eyebrow">Answer</p>
+            <div class="prose">${markdownLite(card.back)}</div>
+            ${citations.length ? `<div class="citations">${citations.map(citationEl).join('')}</div>` : ''}
+          </div>
+        </article>`;
+}
+
 function renderStudy() {
   applyMode();
   const region = els.studyRegion;
@@ -356,10 +404,6 @@ function renderStudy() {
   }
 
   const card = study.queue[study.index];
-  const remaining = study.total - study.index;
-  const pct = study.total ? Math.round((study.index / study.total) * 100) : 0;
-  const citations = Array.isArray(card.citations) ? card.citations : [];
-
   region.innerHTML = `
     <div class="panel study">
       <div class="panel-head study__head">
@@ -372,29 +416,9 @@ function renderStudy() {
         </button>
       </div>
       <div class="panel-body stack stack-5">
-        <div class="study__progress">
-          <div class="progress-label">
-            <span>Card <strong>${study.index + 1}</strong> of <strong>${study.total}</strong></span>
-            <span>${escapeHtml(plural(remaining, 'card'))} left</span>
-          </div>
-          <div class="progress" role="progressbar" aria-label="Review progress"
-               aria-valuemin="0" aria-valuemax="${study.total}" aria-valuenow="${study.index}">
-            <div class="progress-bar" style="width:${pct}%"></div>
-          </div>
-        </div>
+        ${studyProgressHtml(study)}
 
-        <article class="flashcard">
-          <div class="flashcard__side">
-            <p class="eyebrow">Prompt</p>
-            <div class="prose">${markdownLite(card.front)}</div>
-          </div>
-          <div class="flashcard__answer" data-answer tabindex="-1"${study.revealed ? '' : ' hidden'}>
-            <hr class="divider">
-            <p class="eyebrow">Answer</p>
-            <div class="prose">${markdownLite(card.back)}</div>
-            ${citations.length ? `<div class="citations">${citations.map(citationEl).join('')}</div>` : ''}
-          </div>
-        </article>
+        ${studyCardHtml(card, study.revealed)}
 
         <div class="study__actions">
           ${study.revealed ? gradeButtonsHtml() : revealButtonHtml()}
@@ -489,11 +513,12 @@ function exitStudy() {
 function renderSessionOptions() {
   const select = els.sessionSelect;
   const current = select.value;
-  select.innerHTML = ['<option value="">All my material</option>']
-    .concat(state.sessions.map((session) => (
+  select.innerHTML = [
+    '<option value="">All my material</option>',
+    ...state.sessions.map((session) => (
       `<option value="${escapeHtml(session.id)}">${escapeHtml(session.title)}</option>`
-    )))
-    .join('');
+    )),
+  ].join('');
   if ([...select.options].some((option) => option.value === current)) select.value = current;
 }
 

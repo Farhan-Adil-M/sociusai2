@@ -151,9 +151,8 @@ function classify(err) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function backoffDelay(baseMs, attempt) {
-  const base = Number.isFinite(baseMs) && baseMs > 0 ? baseMs : 0;
-  if (base === 0) return 0;
-  const capped = Math.min(base * 2 ** (attempt - 1), MAX_BACKOFF_MS);
+  if (!Number.isFinite(baseMs) || baseMs <= 0) return 0;
+  const capped = Math.min(baseMs * 2 ** (attempt - 1), MAX_BACKOFF_MS);
   return Math.round(capped * (0.5 + Math.random() * 0.5)); // 50–100% jitter
 }
 
@@ -161,58 +160,94 @@ function isTimeoutError(err) {
   return err?.name === 'TimeoutError' || err?.name === 'AbortError';
 }
 
+/** The one flag pair the embedding endpoint ever uses: retry the same model,
+ *  never swap models (a different embedding model would change the vector size
+ *  and corrupt the index). */
+const RETRY_ONLY = Object.freeze({ retry: true, fallback: false });
+
 // --- NIM transport ----------------------------------------------------------
 // OpenAI-compatible endpoints. Each throws an ApiError whose code/message match
 // the long-standing contract, plus the aiRetry/aiFallback routing flags.
+//
+// Both endpoints send the same shape of request — same URL, same headers, same
+// network → HTTP-status → body sequence — so the transport is shared and only
+// the WORDING differs. `canFallback` is the one behavioural difference: a
+// different embedding model returns a different vector size and would corrupt
+// the index, so an embedding failure is never handed to another model.
 
-async function requestCompletion(model, messages, { temperature, maxTokens, timeoutMs }) {
+const cap = (text) => text[0].toUpperCase() + text.slice(1); // "embedding service" → "Embedding service"
+
+const WORDS = {
+  chat: {
+    service: 'AI provider', model: 'AI model', canFallback: true,
+    timeout: 'The AI model did not respond in time. Try again.',
+    unreachable: (err) => `Could not reach the AI provider: ${err.message}`,
+    rateLimit: 'Wait a moment and try again.', unreadable: 'Try again.',
+  },
+  embed: {
+    service: 'embedding service', model: 'Embedding model', canFallback: false,
+    timeout: 'The embedding service did not respond in time. Try again.',
+    unreachable: () => 'Could not reach the embedding service. Check the server connection and try again.',
+    rateLimit: 'Try again shortly.', unreadable: 'Try again later.',
+  },
+};
+
+/** Map an HTTP failure onto an ApiError. Only the status is read: the provider's
+ *  response body is never read or logged, so a provider that echoes the request
+ *  can never put prompt text in a log. */
+function statusError(status, model, words) {
+  if (status === 429) {
+    return providerError(502, 'NIM_ERROR', `${cap(words.service)} rate limit reached. ${words.rateLimit}`, { retry: true, fallback: words.canFallback });
+  }
+  if (status === 401 || status === 403) {
+    // A bad key fails for every model, so neither retry nor fallback helps.
+    return providerError(502, 'NIM_ERROR', `${cap(words.service)} rejected the API key. Check NIM_API_KEY in .env.`, { retry: false, fallback: false });
+  }
+  if (status === 404) {
+    // Model-specific: another configured model may well be available.
+    return providerError(502, 'NIM_ERROR', `${words.model} "${model}" is not available on this account.`, { retry: false, fallback: words.canFallback });
+  }
+  // 5xx and transient 4xx are worth another try; a malformed request
+  // (400/413/422) would be rejected by every model, so fail fast.
+  const transient = status >= 500 || status === 408;
+  const malformed = status === 400 || status === 413 || status === 422;
+  return providerError(502, 'NIM_ERROR', `The ${words.service} returned an error. Try again later.`, {
+    retry: transient,
+    fallback: words.canFallback && (transient || !malformed),
+  });
+}
+
+async function postJson(path, body, timeoutMs, words) {
   let res;
   try {
-    res = await fetch(`${config.nimBaseUrl}/chat/completions`, {
+    res = await fetch(`${config.nimBaseUrl}${path}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${config.nimApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     if (isTimeoutError(err)) {
-      throw providerError(504, 'NIM_TIMEOUT', 'The AI model did not respond in time. Try again.', { retry: true, fallback: true });
+      throw providerError(504, 'NIM_TIMEOUT', words.timeout, { retry: true, fallback: words.canFallback });
     }
-    throw providerError(502, 'NIM_ERROR', `Could not reach the AI provider: ${err.message}`, { retry: true, fallback: true });
+    throw providerError(502, 'NIM_ERROR', words.unreachable(err), { retry: true, fallback: words.canFallback });
   }
 
   if (!res.ok) {
-    let err;
-    if (res.status === 429) {
-      err = providerError(502, 'NIM_ERROR', 'AI provider rate limit reached. Wait a moment and try again.', { retry: true, fallback: true });
-    } else if (res.status === 401 || res.status === 403) {
-      // A bad key fails for every model, so neither retry nor fallback helps.
-      err = providerError(502, 'NIM_ERROR', 'AI provider rejected the API key. Check NIM_API_KEY in .env.', { retry: false, fallback: false });
-    } else if (res.status === 404) {
-      // Model-specific: another configured model may well be available.
-      err = providerError(502, 'NIM_ERROR', `AI model "${model}" is not available on this account.`, { retry: false, fallback: true });
-    } else {
-      // 5xx and transient 4xx are worth another try; a malformed request
-      // (400/413/422) would be rejected by every model, so fail fast.
-      const transient = res.status >= 500 || res.status === 408;
-      const malformed = res.status === 400 || res.status === 413 || res.status === 422;
-      err = providerError(502, 'NIM_ERROR', 'The AI provider returned an error. Try again later.', {
-        retry: transient,
-        fallback: transient || !malformed,
-      });
-    }
-    // HTTP status only — the provider's response body is never read or logged,
-    // so a provider that echoes the request can never put prompt text in a log.
+    const err = statusError(res.status, body.model, words);
     err.aiStatus = res.status;
     throw err;
   }
 
-  let data;
   try {
-    data = await res.json();
+    return await res.json();
   } catch {
-    throw providerError(502, 'NIM_ERROR', 'The AI provider returned an unreadable response. Try again.', { retry: true, fallback: true });
+    throw providerError(502, 'NIM_ERROR', `The ${words.service} returned an unreadable response. ${words.unreadable}`, { retry: true, fallback: words.canFallback });
   }
+}
+
+async function requestCompletion(model, messages, { temperature, maxTokens, timeoutMs }) {
+  const data = await postJson('/chat/completions', { model, messages, temperature, max_tokens: maxTokens }, timeoutMs, WORDS.chat);
 
   const content = data?.choices?.[0]?.message?.content;
   // Reasoning-style models occasionally return empty content. Treat it as a
@@ -225,59 +260,23 @@ async function requestCompletion(model, messages, { temperature, maxTokens, time
 }
 
 async function requestEmbedding(model, texts, timeoutMs) {
-  let res;
-  try {
-    res = await fetch(`${config.nimBaseUrl}/embeddings`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${config.nimApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, input: texts }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    if (isTimeoutError(err)) {
-      throw providerError(504, 'NIM_TIMEOUT', 'The embedding service did not respond in time. Try again.', { retry: true, fallback: false });
-    }
-    throw providerError(502, 'NIM_ERROR', 'Could not reach the embedding service. Check the server connection and try again.', { retry: true, fallback: false });
-  }
-
-  if (!res.ok) {
-    let err;
-    if (res.status === 429) {
-      err = providerError(502, 'NIM_ERROR', 'Embedding service rate limit reached. Try again shortly.', { retry: true, fallback: false });
-    } else if (res.status === 401 || res.status === 403) {
-      err = providerError(502, 'NIM_ERROR', 'Embedding service rejected the API key. Check NIM_API_KEY in .env.', { retry: false, fallback: false });
-    } else if (res.status === 404) {
-      err = providerError(502, 'NIM_ERROR', `Embedding model "${model}" is not available on this account.`, { retry: false, fallback: false });
-    } else {
-      const transient = res.status >= 500 || res.status === 408;
-      err = providerError(502, 'NIM_ERROR', 'The embedding service returned an error. Try again later.', { retry: transient, fallback: false });
-    }
-    err.aiStatus = res.status;
-    throw err;
-  }
-
-  let data;
-  try {
-    data = await res.json();
-  } catch {
-    throw providerError(502, 'NIM_ERROR', 'The embedding service returned an unreadable response. Try again later.', { retry: true, fallback: false });
-  }
+  const data = await postJson('/embeddings', { model, input: texts }, timeoutMs, WORDS.embed);
 
   // Every item carries its own `index`, so place by index instead of trusting
   // response order. The dimension contract (2048) stays with embeddings.js,
   // which owns the index-format message; here we only reject unusable shapes.
   const items = Array.isArray(data?.data) ? data.data : [];
   if (items.length !== texts.length) {
-    throw providerError(502, 'NIM_ERROR', `The embedding service returned ${items.length} vectors for ${texts.length} texts.`, { retry: true, fallback: false });
+    throw providerError(502, 'NIM_ERROR', `The embedding service returned ${items.length} vectors for ${texts.length} texts.`, RETRY_ONLY);
   }
   const vectors = new Array(texts.length);
   for (const item of items) {
     const index = item?.index;
     if (!Number.isInteger(index) || index < 0 || index >= texts.length) {
-      throw providerError(502, 'NIM_ERROR', 'The embedding service returned vectors in an unusable order.', { retry: true, fallback: false });
+      throw providerError(502, 'NIM_ERROR', 'The embedding service returned vectors in an unusable order.', RETRY_ONLY);
     }
     if (!Array.isArray(item.embedding) || item.embedding.length === 0) {
-      throw providerError(502, 'NIM_ERROR', 'The embedding service returned an unusable vector.', { retry: true, fallback: false });
+      throw providerError(502, 'NIM_ERROR', 'The embedding service returned an unusable vector.', RETRY_ONLY);
     }
     vectors[index] = item.embedding;
   }

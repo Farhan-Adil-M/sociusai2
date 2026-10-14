@@ -54,6 +54,9 @@ function unreachableError() {
   return new ApiError(502, 'NIM_ERROR', 'Could not reach the embedding service. Check the server connection and try again.');
 }
 
+/** The one message for an upstream failure the mapping below cannot name. */
+const PROVIDER_ERROR_MESSAGE = 'The embedding service returned an error. Try again later.';
+
 /** One returned vector: non-empty and exactly EMBED_DIMENSION numbers long. */
 function validateVector(vector, model) {
   if (!Array.isArray(vector) || vector.length === 0) {
@@ -109,7 +112,7 @@ async function directEmbed(batch, model) {
     if (res.status === 429) throw new ApiError(502, 'NIM_ERROR', 'Embedding service rate limit reached. Try again shortly.');
     if (res.status === 401 || res.status === 403) throw new ApiError(502, 'NIM_ERROR', 'Embedding service rejected the API key. Check NIM_API_KEY in .env.');
     if (res.status === 404) throw new ApiError(502, 'NIM_ERROR', `Embedding model "${model}" is not available on this account.`);
-    throw new ApiError(502, 'NIM_ERROR', 'The embedding service returned an error. Try again later.');
+    throw new ApiError(502, 'NIM_ERROR', PROVIDER_ERROR_MESSAGE);
   }
 
   let data;
@@ -135,7 +138,7 @@ async function embedBatch(batch, model) {
   } catch (err) {
     if (err instanceof ApiError) throw err; // the router already mapped it
     console.error('[embeddings] router embed failed:', err);
-    throw isTimeout(err) ? timeoutError() : new ApiError(502, 'NIM_ERROR', 'The embedding service returned an error. Try again later.');
+    throw isTimeout(err) ? timeoutError() : new ApiError(502, 'NIM_ERROR', PROVIDER_ERROR_MESSAGE);
   }
 
   if (!Array.isArray(vectors) || vectors.length !== batch.length) {

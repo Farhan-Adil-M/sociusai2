@@ -133,17 +133,24 @@ function masteryOf(record) {
   return Math.min(1, Math.max(0, correct / total));
 }
 
-/** Level from a measured mastery; null (never 1) for an unmeasured topic. */
-function levelOf(mastery) {
-  return mastery === null ? null : levelFor(mastery);
-}
-
 /** How the server proposes to practise one topic. Pure: evidence decides. */
 function activityOf(mastery, dueCards) {
   if (mastery === null) return dueCards > 0 ? 'flashcards' : 'quiz';
   if (mastery < REVISION_LINE) return 'review';      // weakest → tutor-led review
   if (mastery < TARGET_MASTERY) return 'quiz';       // below target → practise
   return dueCards > 0 ? 'flashcards' : 'quiz';       // on target → keep it fresh
+}
+
+/**
+ * Scheduling urgency for one topic; see URGENCY for the band order. A stored
+ * deadline outranks every measured signal, so it is checked first.
+ */
+function urgencyOf(mastery, dueCards, hasDeadline) {
+  if (hasDeadline) return URGENCY.DEADLINE;
+  if (mastery === null) return dueCards > 0 ? URGENCY.DUE_CARDS : URGENCY.IMPROVE;
+  if (mastery < REVISION_LINE) return URGENCY.REVISE;
+  if (mastery < TARGET_MASTERY) return URGENCY.IMPROVE;
+  return URGENCY.MAINTAIN;
 }
 
 /**
@@ -169,11 +176,17 @@ function minutesFor(activity, mastery) {
   return Math.max(MIN_SESSION_MINUTES, Math.round((base * need) / MINUTES_STEP) * MINUTES_STEP);
 }
 
+/** The one goal sentence the plan summary and a topic's reason both use. */
+function goalSentence(goal, today) {
+  const tense = goal.deadline <= today ? 'was due' : 'is due';
+  return `Your goal «${goal.label}» ${tense} on ${goal.deadline}.`;
+}
+
 /** A goal's deadline, phrased with the tense the calendar actually supports. */
 function goalNote(goal, today) {
   if (!goal || typeof goal.deadline !== 'string' || goal.deadline === '') return '';
-  const tense = goal.deadline <= today ? 'was due' : 'is due';
-  return ` Your goal «${goal.label}» ${tense} on ${goal.deadline}.`;
+  // Leading space: a reason already has text in front of it.
+  return ` ${goalSentence(goal, today)}`;
 }
 
 /** One human-readable sentence; every number in it is stored evidence. */
@@ -379,6 +392,49 @@ export async function loadPlanEvidence(db, { userId, now = new Date() } = {}) {
 // ---------- the schedule (pure) ---------------------------------------------
 
 /**
+ * One topic's scheduling record — everything `byPriority` sorts on and every
+ * `items[]` entry copies. Null for an unusable record, so the caller drops
+ * those in one pass.
+ */
+function planRecord(raw, { recommended, horizonEnd, today }) {
+  const topic = normalizeTopic(raw?.topic ?? raw?.name);
+  if (!topic) return null;
+
+  const mastery = masteryOf(raw);
+  // null, never 1: levelFor(null) is 0, and 0 is not "unassessed".
+  const level = mastery === null ? null : levelFor(mastery);
+  const dueCards = Math.max(0, Number(raw?.dueCards) || 0);
+  const goal = raw?.goal && typeof raw.goal.deadline === 'string' && raw.goal.deadline <= horizonEnd
+    ? raw.goal
+    : null;
+  const activity = activityOf(mastery, dueCards);
+
+  return {
+    topic,
+    mastery,
+    level,
+    levelLabel: levelLabel(level),
+    activity,
+    urgency: urgencyOf(mastery, dueCards, goal !== null),
+    recommended: topic === recommended,
+    dueCards,
+    lastPracticedAt: raw?.lastPracticedAt ?? raw?.last_practiced_at ?? null,
+    goal,
+    sourceIds: Array.isArray(raw?.sourceIds)
+      ? [...new Set(raw.sourceIds.filter((id) => typeof id === 'string' && id !== ''))].sort()
+      : [],
+    reason: reasonFor({
+      mastery,
+      total: Math.max(0, Number(raw?.total) || 0),
+      dueCards,
+      goal,
+      today,
+    }),
+    estimatedMinutes: minutesFor(activity, mastery),
+  };
+}
+
+/**
  * Build the study plan.
  *
  * @param {Array<object>} evidence — see loadPlanEvidence's record shape.
@@ -396,61 +452,20 @@ export function computePlan(evidence, days, { now = new Date(), suggestedNext = 
   const horizonEnd = isoDate(new Date(start.getTime() + (horizonDays - 1) * DAY_MS));
   const recommended = normalizeTopic(suggestedNext?.topic);
 
-  const records = [];
-  for (const raw of (Array.isArray(evidence) ? evidence : [])) {
-    const topic = normalizeTopic(raw?.topic ?? raw?.name);
-    if (!topic) continue;
-
-    const mastery = masteryOf(raw);
-    const level = levelOf(mastery);
-    const dueCards = Math.max(0, Number(raw?.dueCards) || 0);
-    const goal = raw?.goal && typeof raw.goal.deadline === 'string' && raw.goal.deadline <= horizonEnd
-      ? raw.goal
-      : null;
-    const activity = activityOf(mastery, dueCards);
-
-    let urgency = mastery === null
-      ? (dueCards > 0 ? URGENCY.DUE_CARDS : URGENCY.IMPROVE)
-      : (mastery < REVISION_LINE ? URGENCY.REVISE
-        : mastery < TARGET_MASTERY ? URGENCY.IMPROVE : URGENCY.MAINTAIN);
-    if (goal) urgency = URGENCY.DEADLINE;
-
-    records.push({
-      topic,
-      mastery,
-      level,
-      levelLabel: levelLabel(level),
-      activity,
-      urgency,
-      recommended: topic === recommended,
-      dueCards,
-      lastPracticedAt: raw?.lastPracticedAt ?? raw?.last_practiced_at ?? null,
-      goal,
-      sourceIds: Array.isArray(raw?.sourceIds)
-        ? [...new Set(raw.sourceIds.filter((id) => typeof id === 'string' && id !== ''))].sort()
-        : [],
-      reason: reasonFor({
-        mastery,
-        total: Math.max(0, Number(raw?.total) || 0),
-        dueCards,
-        goal,
-        today,
-      }),
-      estimatedMinutes: minutesFor(activity, mastery),
-    });
-  }
-
-  // One total order (see byPriority). The topic A14's engine recommended leads
+  // One total order (see byPriority): the topic A14's engine recommended leads
   // its own urgency band; the scheduler never re-decides the recommendation.
-  const ordered = [...records].sort(byPriority);
+  const records = (Array.isArray(evidence) ? evidence : [])
+    .map((raw) => planRecord(raw, { recommended, horizonEnd, today }))
+    .filter((record) => record !== null)
+    .sort(byPriority);
 
   // One session per day of the horizon. Topics cycle in priority order, so the
   // weakest topic comes back first whenever the horizon outgrows the topic list
   // — the plan fills every day the learner asked for and never pads with an
   // invented topic.
   const items = [];
-  for (let day = 1; ordered.length > 0 && day <= horizonDays; day++) {
-    const chosen = ordered[(day - 1) % ordered.length];
+  for (let day = 1; records.length > 0 && day <= horizonDays; day++) {
+    const chosen = records[(day - 1) % records.length];
     items.push({
       day,
       date: isoDate(new Date(start.getTime() + (day - 1) * DAY_MS)),
@@ -464,37 +479,36 @@ export function computePlan(evidence, days, { now = new Date(), suggestedNext = 
     });
   }
 
-  const dueTotal = ordered.reduce((sum, record) => sum + record.dueCards, 0);
+  const dueTotal = records.reduce((sum, record) => sum + record.dueCards, 0);
   // Only goals that matched a scheduled topic are reported: the plan never
   // claims progress toward a deadline it cannot act on.
-  const goals = ordered
+  const goals = records
     .filter((record) => record.goal !== null)
     .map((record) => record.goal)
     .sort((a, b) => (a.deadline < b.deadline ? -1 : a.deadline > b.deadline ? 1 : 0));
 
   return {
     horizonDays,
-    hasEvidence: ordered.length > 0,
+    hasEvidence: records.length > 0,
     items,
-    summary: summaryFor({ ordered, horizonDays, dueTotal, goals, today }),
+    summary: summaryFor({ records, horizonDays, dueTotal, goals, today }),
   };
 }
 
 /** The plan's one-paragraph explanation. Every figure in it is stored data. */
-function summaryFor({ ordered, horizonDays, dueTotal, goals, today }) {
-  if (ordered.length === 0) {
+function summaryFor({ records, horizonDays, dueTotal, goals, today }) {
+  if (records.length === 0) {
     return 'There is nothing to plan yet — no graded answers and no flashcards are due. '
       + 'Take a short quiz and this plan will be scheduled from your real results.';
   }
 
   const parts = [
-    `Focus on ${ordered.length} topic${ordered.length === 1 ? '' : 's'} ${
+    `Focus on ${records.length} topic${records.length === 1 ? '' : 's'} ${
       horizonDays === 7 ? 'this week' : `over the next ${horizonDays} days`}, `
-      + `starting with «${ordered[0].topic}».`,
+      + `starting with «${records[0].topic}».`,
   ];
   if (goals.length === 1) {
-    const goal = goals[0];
-    parts.push(`Your goal «${goal.label}» ${goal.deadline <= today ? 'was due' : 'is due'} on ${goal.deadline}.`);
+    parts.push(goalSentence(goals[0], today));
   } else if (goals.length > 1) {
     parts.push(`${goals.length} goals fall inside this plan; the nearest is due on ${goals[0].deadline}.`);
   }

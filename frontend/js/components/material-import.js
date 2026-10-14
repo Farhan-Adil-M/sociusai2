@@ -39,7 +39,7 @@
 
 import { apiGet, apiPatch, apiPost, apiUpload } from '../api.js';
 import { getHealthStatus, storageUploadToStudySources } from '../auth.js';
-import { escapeHtml, errorMessage, formatDate, icon } from '../ui.js';
+import { escapeHtml, errorMessage, formatDate, icon, plural } from '../ui.js';
 
 /* ------------------------------------------------------------ validation ---- */
 
@@ -131,8 +131,7 @@ export function showDuplicateHint(host, matched) {
  */
 export function setUploadLimitHint(hintEl) {
   if (!hintEl) return;
-  let snapshot = null;
-  try { snapshot = getHealthStatus(); } catch { snapshot = null; }
+  const snapshot = getHealthStatus();
   const checks = snapshot && snapshot.ok ? snapshot.data?.checks : null;
   if (!checks) return;
   const viaStorage = checks.auth?.mode === 'supabase';
@@ -180,7 +179,7 @@ function successMarkup(source, note = '') {
   const title = escapeHtml(source?.title || 'your material');
   const bits = [];
   if (source?.sizeLabel) bits.push(escapeHtml(source.sizeLabel));
-  if (Number(source?.chunkCount) > 0) bits.push(`${source.chunkCount} ${source.chunkCount === 1 ? 'passage' : 'passages'}`);
+  if (Number(source?.chunkCount) > 0) bits.push(plural(source.chunkCount, 'passage'));
   return `<div class="alert alert-success" role="status">${icon('checkCircle', { size: 16 })}
     <div><strong>Added «${title}».</strong>${bits.length ? ` ${bits.join(' · ')}.` : ''}${note ? ` ${escapeHtml(note)}` : ''}</div></div>`;
 }
@@ -201,8 +200,7 @@ function renderUploadError(host, error, { file = null } = {}) {
 
 /** Upload a document: direct-to-storage in supabase mode, else multipart. */
 async function uploadDocument(file) {
-  let checks = null;
-  try { checks = getHealthStatus()?.data?.checks; } catch { checks = null; }
+  const checks = getHealthStatus()?.data?.checks;
 
   if (checks?.auth?.mode === 'supabase' && checks.auth.supabaseUrl) {
     const { storagePath } = await storageUploadToStudySources(file);

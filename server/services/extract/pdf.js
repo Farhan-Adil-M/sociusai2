@@ -19,7 +19,7 @@ import { ApiError } from '../../middleware/errors.js';
 
 // A page heading is short by definition; anything longer is body prose. This is
 // also the cap on a section name stored against every chunk of the page.
-const MAX_SECTION_CHARS = 80;
+const MAX_PAGE_HEADING_CHARS = 80;
 
 // "Mitochondria are the powerhouse of the" must NOT read as a heading, and
 // "The Light-Dependent Reactions" / "Introduction to Photosynthesis" must.
@@ -46,7 +46,7 @@ function isTitleShaped(words) {
 export function pageHeading(pageText) {
   const line = String(pageText ?? '').split(/[\n\r\f]+/).map((part) => part.trim()).find((part) => part !== '');
   if (!line) return null;
-  if (line.length > MAX_SECTION_CHARS) return null; // long → body prose
+  if (line.length > MAX_PAGE_HEADING_CHARS) return null; // long → body prose
   if (!/\p{L}/u.test(line)) return null; // a page number or a rule
   if (/[.!?;:,]$/.test(line)) return null; // reads like a sentence
   const words = line.split(/\s+/);

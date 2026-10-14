@@ -32,6 +32,7 @@ import {
   CONFIDENCE_BANDS,
   OCR_LANGUAGE_REPORTED,
   overallReliability,
+  positiveOr,
   readImageText,
   reliabilityNote,
 } from '../media/ocr.js';
@@ -63,11 +64,6 @@ const DEFAULT_MAX_PIXELS = 40_000_000;
 const DEFAULT_MAX_FILE_MB = Number.isFinite(config.maxUploadMb) && config.maxUploadMb > 0
   ? config.maxUploadMb
   : 25;
-
-function positiveOr(value, fallback) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : fallback;
-}
 
 /** Maximum upload size in bytes (env `OCR_MAX_FILE_MB`, default MAX_UPLOAD_MB). */
 export function maxImageBytes() {
@@ -276,44 +272,40 @@ export function assertImageUpload(input = {}) {
  * the lines it came from so the caller can say which parts are shaky.
  */
 export function imageSegments(text, lines) {
-  const lined = text.split('\n');
-  const segments = [];
-  let buffer = [];
-  let confidenceSum = 0;
-  let confidenceCount = 0;
-
-  const flush = () => {
-    const body = buffer.join(' ').replace(/\s+/g, ' ').trim();
-    if (body !== '') {
-      segments.push({
-        text: body,
-        location: { paragraph: segments.length + 1 },
-        ...(confidenceCount > 0 ? { confidence: confidenceSum / confidenceCount } : {}),
-      });
-    }
-    buffer = [];
-    confidenceSum = 0;
-    confidenceCount = 0;
-  };
-
-  // Walk the raw lines so a line's measured confidence can follow its paragraph
-  // even when the engine's own line count differs from the text's.
-  for (const [index, raw] of lined.entries()) {
+  // A run of consecutive non-blank lines is one paragraph, so collect the runs
+  // first and build a segment per run — no shared mutable accumulator to reset.
+  const runs = [];
+  let run = [];
+  for (const [index, raw] of text.split('\n').entries()) {
     if (raw.trim() === '') {
-      flush();
+      if (run.length > 0) runs.push(run);
+      run = [];
       continue;
     }
-    buffer.push(raw);
-    const measured = lines[index]?.confidence;
-    if (Number.isFinite(measured)) {
-      confidenceSum += measured;
-      confidenceCount += 1;
-    }
+    // Walk the RAW text lines, so a line's measured confidence can follow its
+    // paragraph even when the engine's own line count differs from the text's.
+    run.push({ raw, confidence: lines[index]?.confidence });
   }
-  flush();
+  if (run.length > 0) runs.push(run);
 
-  return segments;
+  return runs.map((paragraph, index) => {
+    const confidences = paragraph
+      .map((line) => line.confidence)
+      .filter((value) => Number.isFinite(value));
+    const segment = {
+      text: paragraph.map((line) => line.raw).join(' ').replace(/\s+/g, ' ').trim(),
+      location: { paragraph: index + 1 },
+    };
+    if (confidences.length > 0) {
+      segment.confidence = confidences.reduce((sum, value) => sum + value, 0) / confidences.length;
+    }
+    return segment;
+  });
 }
+
+/** The one message for "the engine read nothing", used for both empty cases. */
+const NO_TEXT_MESSAGE = 'No text could be read from this image. It may be a photo of something other than text, '
+  + 'too blurry, or too dark. Try a sharper, well-lit, straight-on picture.';
 
 /**
  * Extract the text in an image.
@@ -324,10 +316,6 @@ export function imageSegments(text, lines) {
  * @throws {ApiError} validation failures as above, 400 EMPTY_CONTENT when the
  *   engine found no text at all, 422 OCR_FAILED / 422 OCR_TIMEOUT from the engine.
  */
-/** The one message for "the engine read nothing", used for both empty cases. */
-const NO_TEXT_MESSAGE = 'No text could be read from this image. It may be a photo of something other than text, '
-  + 'too blurry, or too dark. Try a sharper, well-lit, straight-on picture.';
-
 export async function extractImage(buffer, input = {}) {
   const { safeName, pixelSize } = assertImageUpload({ buffer, ...input });
 

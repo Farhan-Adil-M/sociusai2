@@ -215,6 +215,7 @@ export function errorMessage(error) {
  * here — drop it in with replaceChildren(), or append().
  */
 export function errorState(error, retry, { title = 'That did not work' } = {}) {
+  const canRetry = typeof retry === 'function';
   const node = document.createElement('div');
   node.className = 'empty-state is-error';
   node.setAttribute('role', 'alert');
@@ -222,11 +223,11 @@ export function errorState(error, retry, { title = 'That did not work' } = {}) {
     <span class="empty-state-icon">${icon('alert', { size: 22 })}</span>
     <p class="empty-state-title">${escapeHtml(title)}</p>
     <p class="empty-state-text">${escapeHtml(errorMessage(error))}</p>
-    ${typeof retry === 'function'
+    ${canRetry
       ? `<div class="empty-state-actions"><button type="button" class="btn btn-secondary btn-sm" data-retry>${icon('refresh', { size: 14 })} Try again</button></div>`
       : ''}
   `;
-  if (typeof retry === 'function') {
+  if (canRetry) {
     node.querySelector('[data-retry]').addEventListener('click', retry);
   }
   return node;

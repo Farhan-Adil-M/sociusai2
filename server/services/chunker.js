@@ -197,16 +197,26 @@ function splitUnits(text, structure) {
 }
 
 function pushUnit(units, text, from, to) {
-  const raw = text.slice(from, to);
+  const unit = trimmedUnit(text.slice(from, to), from);
+  if (unit) units.push(unit);
+}
+
+/**
+ * A unit trimmed of surrounding whitespace, with its TRUE offset inside the
+ * parent text (`base` is where the slice started). Shared by the unit, sentence
+ * and hard-split paths so a chunk's charStart/charEnd always point at the text
+ * that is actually stored.
+ */
+function trimmedUnit(raw, base) {
   const trimmed = raw.trim();
-  if (trimmed === '') return;
+  if (trimmed === '') return null;
   const lead = raw.indexOf(trimmed);
-  units.push({
+  return {
     text: trimmed,
-    start: from + lead,
-    end: from + lead + trimmed.length,
+    start: base + lead,
+    end: base + lead + trimmed.length,
     isHeading: false,
-  });
+  };
 }
 
 /**
@@ -271,15 +281,8 @@ function sentencesWithOffsets(text, offset) {
   const regex = /[^.!?]+[.!?]*/g;
   let match;
   while ((match = regex.exec(text)) !== null) {
-    const trimmed = match[0].trim();
-    if (trimmed === '') continue;
-    const lead = match[0].indexOf(trimmed);
-    sentences.push({
-      text: trimmed,
-      start: offset + match.index + lead,
-      end: offset + match.index + lead + trimmed.length,
-      isHeading: false,
-    });
+    const sentence = trimmedUnit(match[0], offset + match.index);
+    if (sentence) sentences.push(sentence);
   }
   return sentences;
 }
@@ -287,16 +290,8 @@ function sentencesWithOffsets(text, offset) {
 function hardSplit(unit, size) {
   const pieces = [];
   for (let from = 0; from < unit.text.length; from += size) {
-    const raw = unit.text.slice(from, from + size);
-    const trimmed = raw.trim();
-    if (trimmed === '') continue;
-    const lead = raw.indexOf(trimmed);
-    pieces.push({
-      text: trimmed,
-      start: unit.start + from + lead,
-      end: unit.start + from + lead + trimmed.length,
-      isHeading: false,
-    });
+    const piece = trimmedUnit(unit.text.slice(from, from + size), unit.start + from);
+    if (piece) pieces.push(piece);
   }
   return pieces;
 }

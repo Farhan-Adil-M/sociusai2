@@ -148,7 +148,8 @@ export async function answerQuestion({ question, sourceIds = [], db, approach, u
   const matchedTopic = context?.topics?.[0] ?? null;
   const previous = await lastApproach(db, matchedTopic, userId);
   const preferred = context?.style ?? null; // chooseApproach re-validates: not a saved style → ignored
-  const explicit = typeof approach === 'string' && REQUESTABLE_APPROACHES.has(approach.trim()) ? approach.trim() : null;
+  const requested = typeof approach === 'string' ? approach.trim() : '';
+  const explicit = REQUESTABLE_APPROACHES.has(requested) ? requested : null;
   const approachGiven = explicit !== null;
   const approachUsed = chooseApproach({ explicit, previous, preferred });
 

@@ -19,9 +19,7 @@ import { APPROACH_ORDER, questionTokens, summarizeApproaches } from './events.js
 import { parseJsonObject, loadProfileRow } from '../store/sqlite.js';
 
 // Same normalisation as events.js question tokens (consistent repeat detection).
-export function tokenize(text) {
-  return questionTokens(text);
-}
+export const tokenize = questionTokens;
 
 // Defensive parse of the profile fields_json blob happens with the shared
 // parseJsonObject helper (store/sqlite.js) — a corrupt value must never
@@ -78,25 +76,29 @@ export async function readLearnerPreferences(db, userId = 'default') {
   const row = await loadProfileRow(db, userId);
   const fields = row ? parseJsonObject(row.fields_json) : {};
 
-  const stated = { goals: [], purpose: null, explanationStyle: null, interests: [], subjects: [] };
-  const inferred = { goals: [], purpose: null, explanationStyle: null, interests: [], subjects: [] };
-  const bucketFor = (item) => (sourceOf(item) === 'inferred' ? inferred : stated);
+  const buckets = {
+    stated: { goals: [], purpose: null, explanationStyle: null, interests: [], subjects: [] },
+    inferred: { goals: [], purpose: null, explanationStyle: null, interests: [], subjects: [] },
+  };
+  const bucketFor = (item) => (sourceOf(item) === 'inferred' ? buckets.inferred : buckets.stated);
 
-  if (Array.isArray(fields.interests)) {
-    for (const item of fields.interests) {
-      const label = asString(item?.label, 40);
-      if (label) bucketFor(item).interests.push(label);
+  // A stored list of `{ label[, deadline] }` items, split by provenance on the
+  // item itself. `build` returns null for anything unusable.
+  const collect = (kind, items, build) => {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      const value = build(item);
+      if (value !== null) bucketFor(item)[kind].push(value);
     }
-  }
+  };
 
-  if (Array.isArray(fields.goals)) {
-    for (const item of fields.goals) {
-      const label = asString(item?.label, 120);
-      if (!label) continue;
-      const deadline = typeof item?.deadline === 'string' && item.deadline !== '' ? item.deadline : null;
-      bucketFor(item).goals.push({ label, deadline });
-    }
-  }
+  collect('interests', fields.interests, (item) => asString(item?.label, 40));
+  collect('goals', fields.goals, (item) => {
+    const label = asString(item?.label, 120);
+    if (!label) return null;
+    const deadline = typeof item?.deadline === 'string' && item.deadline !== '' ? item.deadline : null;
+    return { label, deadline };
+  });
 
   const purpose = asString(fields.purpose, 40);
   if (purpose) bucketFor(fields).purpose = purpose; // purpose carries no own source; treated as stated
@@ -117,8 +119,7 @@ export async function readLearnerPreferences(db, userId = 'default') {
   return {
     hasProfile: Boolean(row) && row.state !== 'new',
     state: row?.state ?? 'new',
-    stated,
-    inferred,
+    ...buckets,
   };
 }
 
@@ -126,9 +127,17 @@ export async function readLearnerPreferences(db, userId = 'default') {
 
 /** True when a candidate's tokens share ≥1 token with the reference set. */
 function sharesToken(candidate, reference) {
-  const tokens = tokenize(candidate);
-  if (tokens.length === 0) return false;
-  return tokens.some((t) => reference.has(t));
+  return tokenize(candidate).some((t) => reference.has(t));
+}
+
+/** The caller's own study-session title, or null when there is no session, no
+ * stored title, or the session belongs to somebody else — a foreign session id
+ * must never contribute topics or tokens. */
+async function sessionTitleFor(db, sessionId, userId = 'default') {
+  if (!sessionId) return null;
+  const session = await db.get('SELECT title, user_id FROM study_sessions WHERE id = ?', sessionId) ?? null;
+  if (!session || session.user_id !== userId) return null;
+  return typeof session.title === 'string' ? session.title.trim() : null;
 }
 
 /**
@@ -147,17 +156,8 @@ function sharesToken(candidate, reference) {
  */
 export async function resolveRelevantTopics(db, question, sessionId = null, userId = 'default') {
   const questionSet = new Set(tokenize(question ?? ''));
-  let titleSet = new Set();
-  let sessionTitle = null;
-  if (sessionId) {
-    const session = await db.get('SELECT title, user_id FROM study_sessions WHERE id = ?', sessionId) ?? null;
-    // Only the caller's session title can ever count (tutor scope already
-    // verified ownership); a foreign session id is treated as nonexistent.
-    if (session && session.user_id === userId) {
-      sessionTitle = typeof session.title === 'string' ? session.title.trim() : null;
-      titleSet = new Set(tokenize(sessionTitle ?? ''));
-    }
-  }
+  const sessionTitle = await sessionTitleFor(db, sessionId, userId);
+  const titleSet = new Set(tokenize(sessionTitle ?? ''));
 
   // { name, rank } — lower rank = more relevant.
   const scored = [];
@@ -195,8 +195,10 @@ export async function resolveRelevantTopics(db, question, sessionId = null, user
 
 // ---- observed confusion + approach notes (from learning_events) ---------------
 
+const COUNT_WORDS = Object.freeze({ 1: 'once', 2: 'twice', 3: 'three times', 4: 'four times', 5: 'five times' });
+
 function countWord(n) {
-  return { 1: 'once', 2: 'twice', 3: 'three times', 4: 'four times', 5: 'five times' }[n] ?? `${n} times`;
+  return COUNT_WORDS[n] ?? `${n} times`;
 }
 
 // ≤2 confusion strings from observed event kinds, deterministic order:
@@ -257,6 +259,49 @@ async function hasEventsForTopics(db, topics, userId = 'default') {
 // ---- learner context ---------------------------------------------------------
 
 /**
+ * Interests worth mentioning: only the ones that relate to the current
+ * question/session — never unrelated ones ("empty when nothing relates").
+ * Stated first, capped at 2, and the two kinds stay apart so the prompt can
+ * label them.
+ */
+function relevantInterests(prefs, relevantTokens) {
+  const interests = [];
+  const statedInterests = [];
+  const inferredInterests = [];
+  const candidates = [
+    ...prefs.stated.interests.map((label) => ({ label, source: 'stated' })),
+    ...prefs.inferred.interests.map((label) => ({ label, source: 'inferred' })),
+  ];
+  for (const item of candidates) {
+    if (interests.length === 2) break;
+    if (!tokenize(item.label).some((t) => relevantTokens.has(t))) continue;
+    interests.push(item.label);
+    (item.source === 'inferred' ? inferredInterests : statedInterests).push(item.label);
+  }
+  return { interests, statedInterests, inferredInterests };
+}
+
+/** The matched self-reported subjects (stated then inferred), with familiarity. */
+function matchedSubjects(prefs, topics) {
+  return [...prefs.stated.subjects, ...prefs.inferred.subjects]
+    .filter((s) => topics.includes(s.subject.trim().toLowerCase()))
+    .map((s) => ({ subject: s.subject, familiarity: s.familiarity }));
+}
+
+/** Observed mastery for the matched learner_topics (this user only), capped at 5. */
+async function observedMastery(db, topics, userId = 'default') {
+  const rows = await db.all('SELECT topic, correct, total FROM learner_topics WHERE user_id = ?', userId);
+  const mastery = [];
+  for (const topic of topics) {
+    const r = rows.find((m) => m.topic === topic);
+    if (!r || r.total <= 0) continue;
+    mastery.push({ topic, percent: Math.round((r.correct / r.total) * 100), uncertain: r.total < 3 });
+    if (mastery.length === 5) break;
+  }
+  return mastery;
+}
+
+/**
  * The learner context for one tutor answer, or null when there is nothing
  * usable: no profile row or state "new", all profile fields empty, no
  * subjects at all, and no matched learner_topics or learning events → the
@@ -278,44 +323,13 @@ export async function buildLearnerContext(db, { question = '', sessionId = null,
 
   // Question tokens PLUS the study-session title tokens: the learner is
   // working inside this session, so its topic scope counts as relevant.
+  const sessionTitle = await sessionTitleFor(db, sessionId, userId);
   const relevantTokens = new Set(tokenize(question ?? ''));
-  if (sessionId) {
-    const session = await db.get('SELECT title, user_id FROM study_sessions WHERE id = ?', sessionId) ?? null;
-    if (session && session.user_id === userId) {
-      for (const t of tokenize(session?.title ?? '')) relevantTokens.add(t);
-    }
-  }
+  for (const t of tokenize(sessionTitle ?? '')) relevantTokens.add(t);
 
-  // Interests: only the ones that relate to what we are being asked about —
-  // never unrelated ones ("empty when nothing relates"). Stated first; the
-  // two kinds stay in separate lists so the prompt can label them.
-  const interests = [];
-  const statedInterests = [];
-  const inferredInterests = [];
-  for (const item of [
-    ...prefs.stated.interests.map((label) => ({ label, source: 'stated' })),
-    ...prefs.inferred.interests.map((label) => ({ label, source: 'inferred' })),
-  ]) {
-    if (interests.length === 2) break;
-    if (!tokenize(item.label).some((t) => relevantTokens.has(t))) continue;
-    interests.push(item.label);
-    (item.source === 'inferred' ? inferredInterests : statedInterests).push(item.label);
-  }
-
-  // Subjects: only the matched ones, with their self-reported familiarity.
-  const subjects = [...prefs.stated.subjects, ...prefs.inferred.subjects]
-    .filter((s) => topics.includes(s.subject.trim().toLowerCase()))
-    .map((s) => ({ subject: s.subject, familiarity: s.familiarity }));
-
-  // Observed mastery for matched learner_topics (this user only).
-  const masteryRows = await db.all('SELECT topic, correct, total FROM learner_topics WHERE user_id = ?', userId);
-  const mastery = [];
-  for (const topic of topics) {
-    const r = masteryRows.find((m) => m.topic === topic);
-    if (!r || r.total <= 0) continue;
-    mastery.push({ topic, percent: Math.round((r.correct / r.total) * 100), uncertain: r.total < 3 });
-    if (mastery.length === 5) break;
-  }
+  const { interests, statedInterests, inferredInterests } = relevantInterests(prefs, relevantTokens);
+  const subjects = matchedSubjects(prefs, topics);
+  const mastery = await observedMastery(db, topics, userId);
 
   const confusion = await buildConfusion(db, topics, 2, userId);
   const approachNotes = await buildApproachNotes(db, topics, 1, userId);
@@ -346,14 +360,20 @@ export async function buildLearnerContext(db, { question = '', sessionId = null,
   };
 }
 
+const FAMILIARITY_LABELS = Object.freeze({
+  none: 'never tried', basic: 'basics known', familiar: 'familiar', confident: 'confident',
+});
+
 // Human phrasing for a self-reported subject familiarity.
 function familiarityLabel(f) {
-  return { none: 'never tried', basic: 'basics known', familiar: 'familiar', confident: 'confident' }[f] ?? 'unclear';
+  return FAMILIARITY_LABELS[f] ?? 'unclear';
 }
+
+const BLOCK_MAX_CHARS = 1200; // hard budget for the learner-context block
 
 /**
  * Compact learner-context block for the tutor system prompt. Hard-capped at
- * 1200 characters (budget enforced here, server-side). Contains only the three
+ * BLOCK_MAX_CHARS (budget enforced here, server-side). Contains only the three
  * labelled sections — no transcript, no ids, nothing else. SELF-REPORTED holds
  * what the student said; INFERRED holds the app's guesses, clearly marked as
  * unconfirmed; OBSERVED holds what practice has shown.
@@ -395,8 +415,8 @@ export function buildLearnerBlock(context) {
     ...(observedLines.length > 0 ? observedLines : ['(nothing observed yet)']),
   ].join('\n');
 
-  if (block.length <= 1200) return block;
-  return `${block.slice(0, 1197)}...`;
+  if (block.length <= BLOCK_MAX_CHARS) return block;
+  return `${block.slice(0, BLOCK_MAX_CHARS - 3)}...`;
 }
 
 // ---- teaching approach wording ------------------------------------------------

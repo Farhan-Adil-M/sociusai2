@@ -292,6 +292,27 @@ function unassessedRecord(topic) {
   };
 }
 
+/**
+ * A stored `difficulty_levels` row → the assessed record shape every accessor
+ * returns. One conversion, so `getTopicMastery` and `summarizeMastery` can
+ * never disagree about the level derived from the same row.
+ */
+function assessedRecord(topic, row) {
+  const mastery = Number(row.mastery);
+  const level = Number(row.level);
+  return {
+    topic,
+    mastery,
+    masteryPercent: Math.round(mastery * 100),
+    level,
+    levelLabel: levelLabel(level),
+    difficulty: difficultyForLevel(level),
+    hasEvidence: true,
+    lastAssessedAt: row.last_assessed_at,
+    source: 'inferred',
+  };
+}
+
 // ---------- persistence + accessors (all filtered by user_id) ----------------
 
 /**
@@ -303,19 +324,7 @@ export async function getTopicMastery(db, { userId = 'default', topic } = {}) {
   if (!key) throw new ApiError(400, 'VALIDATION_ERROR', 'A topic is required.');
   const row = await db.get('SELECT * FROM difficulty_levels WHERE user_id = ? AND topic = ?', userId, key);
   if (!row) return unassessedRecord(key);
-  const mastery = Number(row.mastery);
-  const level = Number(row.level);
-  return {
-    topic: key,
-    mastery,
-    masteryPercent: Math.round(mastery * 100),
-    level,
-    levelLabel: levelLabel(level),
-    difficulty: difficultyForLevel(level),
-    hasEvidence: true,
-    lastAssessedAt: row.last_assessed_at,
-    source: 'inferred',
-  };
+  return assessedRecord(key, row);
 }
 
 /**
@@ -328,21 +337,7 @@ export async function summarizeMastery(db, { userId = 'default' } = {}) {
     'SELECT topic, level, mastery, last_assessed_at FROM difficulty_levels WHERE user_id = ? ORDER BY last_assessed_at DESC',
     userId,
   );
-  const topics = rows.map((row) => {
-    const level = Number(row.level);
-    const mastery = Number(row.mastery);
-    return {
-      topic: row.topic,
-      mastery,
-      masteryPercent: Math.round(mastery * 100),
-      level,
-      levelLabel: levelLabel(level),
-      difficulty: difficultyForLevel(level),
-      hasEvidence: true,
-      lastAssessedAt: row.last_assessed_at,
-      source: 'inferred',
-    };
-  });
+  const topics = rows.map((row) => assessedRecord(row.topic, row));
   const levelCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
   for (const item of topics) if (levelCounts[item.level] !== undefined) levelCounts[item.level] += 1;
   return { topics, levelCounts, overall: { topicsAssessed: topics.length } };

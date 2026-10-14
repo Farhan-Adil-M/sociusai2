@@ -68,13 +68,14 @@ export function gradeChoice(correctChoiceId, choiceId) {
 export function gradeMultiSelect(correctIds, selectedIds, { partial = true } = {}) {
   const correct = toIdSet(correctIds);
   const selected = toIdSet(selectedIds);
-  let hits = 0;
-  for (const id of selected) if (correct.has(id)) hits += 1;
+  const hits = [...selected].filter((id) => correct.has(id)).length;
   const misses = selected.size - hits;
   const exact = hits === correct.size && misses === 0;
-  const score = exact ? 1
-    : partial && correct.size > 0 ? Math.max(0, (hits - misses) / correct.size)
-      : 0;
+
+  let score = 0;
+  if (exact) score = 1;
+  else if (partial && correct.size > 0) score = Math.max(0, (hits - misses) / correct.size);
+
   return { correct: exact, score: round4(score), partial: !exact && score > 0, hits, misses };
 }
 
@@ -87,13 +88,13 @@ export function gradeMultiSelect(correctIds, selectedIds, { partial = true } = {
  */
 export function gradeShortAnswer(expected, given, { alternatives = [], partial = false } = {}) {
   const answer = normalizeText(given);
-  const accepted = [normalizeText(expected)]
+  const target = normalizeText(expected);
+  const accepted = [target]
     .concat((Array.isArray(alternatives) ? alternatives : []).map(normalizeText))
     .filter((text) => text !== '');
 
   if (answer !== '' && accepted.includes(answer)) return { correct: true, score: 1, partial: false };
 
-  const target = normalizeText(expected);
   if (!partial || target === '' || answer === '') return { correct: false, score: 0, partial: false };
 
   const expectedTokens = new Set(target.split(' '));

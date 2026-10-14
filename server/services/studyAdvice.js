@@ -8,11 +8,8 @@
 // can pass in-memory databases and stubs. DB reads go through the async engine
 // facade (db.get/db.all) like every other module.
 
-import { retrieve, toCitation, hitScore } from './retrieval.js';
-import { wrapPassages } from './prompts.js';
-import { collectQuestions } from './quizService.js';
-import { needsRevision, suggestNext, difficultyFor } from './learner.js';
-import { config } from '../config.js';
+import { citationsForQuestion, collectQuestions, retrieveForAssessment } from './quizService.js';
+import { needsRevision, difficultyFor } from './learner.js';
 
 // ---------- intent classification (pure, deterministic) ----------
 
@@ -44,11 +41,14 @@ const INTENT_PHRASES = [
   'prepare', 'give me', 'show me', 'what are', 'what should i', 'list', 'please',
 ];
 const EDGE_FILLERS = /^(and|from|in|on|about|for|of|my|the|a|an|to|chapter|chapters)\b\s*|\s+\b(and|from|in|on|about|for|of|my|the|a|an|to|chapter|chapters)$/gi;
+// Compiled once: the phrases never change, and `replace` with a /g/ pattern
+// always restarts at index 0, so a shared regex is safe across calls.
+const INTENT_PATTERNS = INTENT_PHRASES.map((phrase) => new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'));
 
 function topicForPracticeQuestions(questionText) {
   let remaining = String(questionText ?? '');
-  for (const phrase of INTENT_PHRASES) {
-    remaining = remaining.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
+  for (const pattern of INTENT_PATTERNS) {
+    remaining = remaining.replace(pattern, ' ');
   }
   remaining = remaining.replace(/\s+/g, ' ').trim();
   for (let i = 0; i < 3 && remaining !== ''; i++) { // remove stacked edge fillers
@@ -62,6 +62,11 @@ function topicForPracticeQuestions(questionText) {
 const masteryPercentOf = (row) => Math.round((row.correct / row.total) * 100);
 const byWorstMastery = (a, b) => (a.correct / a.total) - (b.correct / b.total);
 
+// The fields every revision answer carries, whatever it advises.
+const REVISION_SHAPE = Object.freeze({ citations: [], needsContent: false, intent: 'revise-next' });
+// The fields every progress answer carries (deterministic, no retrieval).
+const PROGRESS_SHAPE = Object.freeze({ citations: [], needsContent: false, intent: 'progress' });
+
 export async function revisionAdvice(db, userId = 'default') {
   const rows = await db.all('SELECT * FROM learner_topics WHERE user_id = ? ORDER BY last_practiced_at DESC', userId);
 
@@ -69,9 +74,7 @@ export async function revisionAdvice(db, userId = 'default') {
     return {
       answer: 'You have no quiz attempts yet, so there is no practice history to base a revision plan on. '
         + 'Generate a diagnostic quiz on any topic from your study material — your result will set the starting difficulty for that topic.',
-      citations: [],
-      needsContent: false,
-      intent: 'revise-next',
+      ...REVISION_SHAPE,
       suggestedNext: null,
     };
   }
@@ -95,9 +98,7 @@ export async function revisionAdvice(db, userId = 'default') {
 
   return {
     answer: lines.join(' '),
-    citations: [],
-    needsContent: false,
-    intent: 'revise-next',
+    ...REVISION_SHAPE,
     suggestedNext: { topic: picked.topic, difficulty },
   };
 }
@@ -122,6 +123,8 @@ export async function progressAdvice(db, userId = 'default') {
   const bestRatio = Math.max(...sorted.map(scoreOf));
   const best = sorted.find((row) => scoreOf(row) === bestRatio) ?? null;
   const reviseList = topicRows.filter(needsRevision).sort(byWorstMastery).slice(0, 3);
+  const bestMastery = best === null ? null : masteryPercentOf(best);
+  const worstMastery = worst === null ? null : masteryPercentOf(worst);
 
   if (attempts.length === 0 && topicRows.length === 0) {
     return {
@@ -133,15 +136,13 @@ export async function progressAdvice(db, userId = 'default') {
       worstTopic: null,
       needsRevision: [],
       recentActivityCount: activityCount,
-      citations: [],
-      needsContent: false,
-      intent: 'progress',
+      ...PROGRESS_SHAPE,
     };
   }
 
   const parts = [`You have taken ${attempts.length} quiz${attempts.length === 1 ? '' : 'zes'}, answering ${questionsAnswered} questions with ${accuracyPercent}% accuracy.`];
-  if (best) parts.push(`Strongest topic: «${best.topic}» (${masteryPercentOf(best)}%).`);
-  if (worst && (!best || worst.topic !== best.topic)) parts.push(`Needs the most work: «${worst.topic}» (${masteryPercentOf(worst)}%).`);
+  if (best) parts.push(`Strongest topic: «${best.topic}» (${bestMastery}%).`);
+  if (worst && (!best || worst.topic !== best.topic)) parts.push(`Needs the most work: «${worst.topic}» (${worstMastery}%).`);
   if (reviseList.length > 0) {
     parts.push(`Topics flagged for revision: ${reviseList.map((r) => `«${r.topic}» (${masteryPercentOf(r)}%)`).join(', ')}.`);
   }
@@ -152,13 +153,11 @@ export async function progressAdvice(db, userId = 'default') {
     quizzesTaken: attempts.length,
     questionsAnswered,
     accuracyPercent,
-    bestTopic: best ? { topic: best.topic, masteryPercent: masteryPercentOf(best) } : null,
-    worstTopic: worst ? { topic: worst.topic, masteryPercent: masteryPercentOf(worst) } : null,
+    bestTopic: best === null ? null : { topic: best.topic, masteryPercent: bestMastery },
+    worstTopic: worst === null ? null : { topic: worst.topic, masteryPercent: worstMastery },
     needsRevision: reviseList.map((r) => ({ topic: r.topic, masteryPercent: masteryPercentOf(r) })),
     recentActivityCount: activityCount,
-    citations: [],
-    needsContent: false,
-    intent: 'progress',
+    ...PROGRESS_SHAPE,
   };
 }
 
@@ -168,22 +167,21 @@ const PRACTICE_PREFIX = 'Practice questions drawn from your material:';
 const PRACTICE_COUNT = 5;
 
 // Citations come ONLY from the retrieved hits (order of first reference), not
-// from anything the model said. Mapped per question like quizService does.
+// from anything the model said. The per-question resolution is quizService's
+// `citationsForQuestion` (shared so the two generators can never drift); this
+// only de-duplicates across questions and caps the total.
+const MAX_PRACTICE_CITATIONS = 6;
+
 function buildCitations(hits, questions) {
   const seen = new Set();
   const out = [];
-  const push = (hit) => {
-    if (out.length >= 6) return;
-    const cite = toCitation(hit);
-    const key = `${cite.sourceId}|${cite.excerpt}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(cite);
-  };
   for (const q of questions) {
-    const cited = q.cite.slice(0, 3).map((n) => hits[n - 1]).filter(Boolean);
-    for (const hit of (cited.length > 0 ? cited : hits.slice(0, 2))) {
-      push(hit);
+    for (const cite of citationsForQuestion(hits, q.cite)) {
+      if (out.length >= MAX_PRACTICE_CITATIONS) return out;
+      const key = `${cite.sourceId}|${cite.excerpt}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(cite);
     }
   }
   return out;
@@ -203,23 +201,23 @@ function formatPracticeAnswer(topic, questions) {
   return lines.join('\n').trim();
 }
 
+// Both "not enough material" answers carry the same honest shape.
+const NEEDS_CONTENT = Object.freeze({ citations: [], needsContent: true, intent: 'important-questions' });
+
 export async function importantQuestions(db, { question, sourceIds = [] }, { ai, vector, userId = 'default' } = {}) {
   const NO_MATERIAL = {
     answer: "I couldn't find enough in your study materials to compose practice questions on this — add or select material covering the topic first.",
-    citations: [],
-    needsContent: true,
-    intent: 'important-questions',
+    ...NEEDS_CONTENT,
   };
 
   // Breadth retrieval (owner-scoped); the relative evidence filter sorts
   // relevance, then we apply the absolute sanity bound here (same as
-  // generateQuiz).
-  const hits = await retrieve(question, { sourceIds, k: 8, minScore: 0, ai, vector, userId });
-  if (hits.length === 0 || hits.every((hit) => (hitScore(hit) ?? 0) < config.ragMinSimilarity)) {
+  // generateQuiz). `retrieveForAssessment` is the shared assessment path.
+  const { hits, weakEvidence, evidence } = await retrieveForAssessment(question, { sourceIds, ai, vector, userId });
+  if (hits.length === 0 || weakEvidence) {
     return NO_MATERIAL; // honest RETRIEVAL failure — never a fabricated list
   }
 
-  const evidence = wrapPassages(hits);
   const topic = topicForPracticeQuestions(question);
 
   // generateQuestionBatch already parses, validates and normalizes the loose
@@ -234,9 +232,7 @@ export async function importantQuestions(db, { question, sourceIds = [] }, { ai,
   if (accepted.length === 0) {
     return {
       answer: 'I could not compose valid practice questions from your study materials for this — try a broader topic or add more material that covers it.',
-      citations: [],
-      needsContent: true,
-      intent: 'important-questions',
+      ...NEEDS_CONTENT,
     };
   }
 

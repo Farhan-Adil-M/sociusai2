@@ -91,6 +91,9 @@ export const DEFAULTS = Object.freeze({
 // a pathological-input safety net, not a normal path.
 const MAX_WINDOWS = 4;
 
+// One shortening attempt, then one retry (see `shortenOnce`).
+const ATTEMPTS = 2;
+
 // ── public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -233,34 +236,25 @@ function findProblem(candidate, source, opts) {
  */
 async function shortenOnce(source, opts) {
   const messages = buildMessages(source, opts.maxSentences);
-
-  let answer;
-  try {
-    answer = await opts.chat(messages, { task: opts.task, model: opts.model, temperature: opts.temperature, maxTokens: opts.maxTokens });
-  } catch (err) {
-    opts.log(`model call failed — keeping original text (${describeError(err)})`);
-    return { text: source, shortened: false };
-  }
-
-  let candidate = stripWrapper(answer);
-  let problem = findProblem(candidate, source, opts);
-  if (!problem) return { text: candidate, shortened: true };
+  const params = { task: opts.task, model: opts.model, temperature: opts.temperature, maxTokens: opts.maxTokens };
 
   // Retry once: the model can return a preamble, a longer "summary", or an
   // invented figure. A second sample often fixes it; if not, keep the original.
-  opts.log(`answer rejected (${problem}) — retrying once`);
-  try {
-    answer = await opts.chat(messages, { task: opts.task, model: opts.model, temperature: opts.temperature, maxTokens: opts.maxTokens });
-  } catch (err) {
-    opts.log(`retry failed — keeping original text (${describeError(err)})`);
-    return { text: source, shortened: false };
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    const last = attempt === ATTEMPTS;
+    try {
+      const candidate = stripWrapper(await opts.chat(messages, params));
+      const problem = findProblem(candidate, source, opts);
+      if (!problem) return { text: candidate, shortened: true };
+      opts.log(last ? `retry rejected too (${problem}) — keeping original text`
+        : `answer rejected (${problem}) — retrying once`);
+    } catch (err) {
+      opts.log(last ? `retry failed — keeping original text (${describeError(err)})`
+        : `model call failed — keeping original text (${describeError(err)})`);
+      break; // a model exception is never retried
+    }
   }
 
-  candidate = stripWrapper(answer);
-  problem = findProblem(candidate, source, opts);
-  if (!problem) return { text: candidate, shortened: true };
-
-  opts.log(`retry rejected too (${problem}) — keeping original text`);
   return { text: source, shortened: false };
 }
 

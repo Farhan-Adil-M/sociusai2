@@ -21,6 +21,9 @@
 import { apiGet } from '../api.js';
 import { escapeHtml, plural } from '../ui.js';
 
+/** The always-present first option, so a failed load still searches everything. */
+const ALL_MATERIAL_OPTION = '<option value="">All material</option>';
+
 /**
  * @param {HTMLSelectElement} select  filled with "<option value=''>All material</option>" + one per source
  * @param {HTMLElement|null}   note    receives a short availability sentence
@@ -37,7 +40,7 @@ export async function populateScopeSelect(select, note = null, { sessionId = nul
   try {
     const data = await apiGet(path);
     const sources = Array.isArray(data?.sources) ? data.sources : [];
-    select.innerHTML = '<option value="">All material</option>'
+    select.innerHTML = ALL_MATERIAL_OPTION
       + sources.map((source) => (
         `<option value="${escapeHtml(source.id)}">${escapeHtml(source.title || 'Untitled source')}</option>`
       )).join('');
@@ -49,7 +52,7 @@ export async function populateScopeSelect(select, note = null, { sessionId = nul
     return sources;
   } catch {
     // Keep the safe default ("All material") so the caller still works.
-    select.innerHTML = '<option value="">All material</option>';
+    select.innerHTML = ALL_MATERIAL_OPTION;
     if (note) note.textContent = 'Source list unavailable — questions will search all your material.';
     return [];
   }

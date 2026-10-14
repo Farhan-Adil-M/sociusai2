@@ -40,6 +40,9 @@ const UNREACHABLE = {
   message: 'The Socius AI server could not be reached.',
 };
 
+/** Shown when /api/health answers, but not with anything usable. */
+const NO_STATUS_RESPONSE = 'The server did not return a usable status response.';
+
 let client = null; // shared supabase-js browser client (created lazily)
 let session = null; // cached Supabase session (kept fresh by the auth listener)
 let mode = 'prototype'; // 'supabase' once the client is live, else 'prototype'
@@ -53,16 +56,18 @@ let health = { ok: false, error: { ...UNREACHABLE } };
 // Auth-state subscribers (see onAuthStateChange).
 const listeners = new Set();
 
-/** Tell every subscriber that the session changed. A failing listener must
- *  never break the boot or another listener. */
-function notify(event) {
-  for (const listener of [...listeners]) {
-    try {
-      listener(event, getSessionSnapshot());
-    } catch (error) {
-      console.error('[auth] auth-state listener failed:', error?.message ?? error);
-    }
+/** Call one subscriber safely: a failing listener must never break the boot. */
+function callListener(listener, event) {
+  try {
+    listener(event, getSessionSnapshot());
+  } catch (error) {
+    console.error('[auth] auth-state listener failed:', error?.message ?? error);
   }
+}
+
+/** Tell every subscriber that the session changed. */
+function notify(event) {
+  for (const listener of [...listeners]) callListener(listener, event);
 }
 
 /* ------------------------------------------------- extension session handoff */
@@ -147,11 +152,11 @@ function healthErrorFrom(error) {
   if (envelope?.code) {
     return {
       code: envelope.code,
-      message: envelope.message || 'The server did not return a usable status response.',
+      message: envelope.message || NO_STATUS_RESPONSE,
     };
   }
   if (error?.code === 'NETWORK_ERROR') return { ...UNREACHABLE };
-  return { code: 'INTERNAL', message: 'The server did not return a usable status response.' };
+  return { code: 'INTERNAL', message: NO_STATUS_RESPONSE };
 }
 
 /** One raw GET /api/health. Returns the auth config, or null when unavailable. */
@@ -168,7 +173,7 @@ async function readHealth() {
   }
 
   if (!data || !data.checks) {
-    health = { ok: false, error: { code: 'INTERNAL', message: 'The server did not return a usable status response.' } };
+    health = { ok: false, error: { code: 'INTERNAL', message: NO_STATUS_RESPONSE } };
     return null;
   }
 
@@ -354,13 +359,7 @@ export function onAuthStateChange(listener) {
   listeners.add(listener);
   if (booted) {
     queueMicrotask(() => {
-      if (listeners.has(listener)) {
-        try {
-          listener('INITIAL_SESSION', getSessionSnapshot());
-        } catch (error) {
-          console.error('[auth] auth-state listener failed:', error?.message ?? error);
-        }
-      }
+      if (listeners.has(listener)) callListener(listener, 'INITIAL_SESSION');
     });
   }
   return () => listeners.delete(listener);
