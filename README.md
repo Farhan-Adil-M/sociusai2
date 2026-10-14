@@ -225,13 +225,16 @@ extension/           MV3 browser extension (highlight + briefing, session handof
 tests/               offline node:test suite (runs without network)
 scripts/             reindex, migrations, eval, and end-to-end runs
 docs/                API contract, ownership registry, roadmap, handoff log
-_legacy-frontend/    the OLD frontend, kept read-only for behavioural reference
 data/                runtime data: database file, local Chroma storage, demo seed (git-ignored except demo-seed.json)
 ```
 
-### `_legacy-frontend/` — read-only, being retired
+### `_legacy-frontend/` — retired in Phase 6
 
-`_legacy-frontend/` is the previous Socius AI frontend, kept only so we can compare behaviour (layout, wording, edge cases) while rebuilding the pages. It is **read-only**: never modify it and never import from it at runtime. It will be **deleted in Phase 6 (integration)** once the rebuilt pages cover everything it did. If you need to check how the old app behaved, read it; if you think you need code from it, port the *idea* into the owned file for that page.
+The old Socius AI frontend, kept read-only during the rebuild so we could compare layout, wording and edge cases. It was **deleted in Phase 6 (integration)**, as planned, once all twelve rebuilt pages were verified. It was never imported at runtime. To read the old code for reference:
+
+```bash
+git show 5eb9501 -- _legacy-frontend
+```
 
 ## Known limitations (honest list)
 

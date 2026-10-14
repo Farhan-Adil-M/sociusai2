@@ -37,7 +37,7 @@ Every file under `frontend/` is served to the browser as written.
 | `tests/` | `node:test` suite, offline (195 tests at Phase 0) | T01–T05, plus each feature's author |
 | `data/` | runtime data: SQLite file, local Chroma storage, demo seed. Git-ignored. | — |
 | `docs/` | this map, the ownership registry, the API contract, glossary, handoff log | — |
-| `_legacy-frontend/` | the previous frontend, **read-only**. Reference only — never import it, never ship it. | nobody |
+| `_legacy-frontend/` | the previous frontend — **removed in Phase 6** (all 12 pages rebuilt and verified). Recoverable from git: `git show 5eb9501 -- _legacy-frontend`. | nobody |
 
 ---
 

@@ -27,6 +27,7 @@
 import path from 'node:path';
 import { ApiError } from '../../middleware/errors.js';
 import { config } from '../../config.js';
+import { sanitizeFilename } from '../../constants.js';
 import {
   CONFIDENCE_BANDS,
   OCR_LANGUAGE_REPORTED,
@@ -81,15 +82,13 @@ export function maxImagePixels() {
 // ------------------------------------------------------------------ filenames
 
 /**
- * Trust only the final path segment of a client-supplied filename, exactly as
- * sources.js does: "../../etc/passwd.png" (or a Windows backslash path) must
- * never reach a stored title or be treated as a path by anything downstream.
- * Uploads are memory-only, so this is defence in depth.
+ * Image ingest's filename guard. The logic lives in `constants.js#sanitizeFilename`
+ * (shared with `routes/sources.js`); importing the route module from here would
+ * create a circular dependency, since sources.js imports the extractors.
+ * The only difference is the fallback name.
  */
 export function sanitizeImageFilename(name) {
-  const base = path.posix.basename(String(name ?? '').replace(/\\/g, '/'));
-  const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, '').trim();
-  return (cleaned === '' || cleaned === '.' || cleaned === '..') ? 'image' : cleaned;
+  return sanitizeFilename(name, 'image');
 }
 
 // ------------------------------------------------------------- format sniffing

@@ -37,6 +37,9 @@ const NAV_ITEMS = [
   { key: 'study', href: 'study.html', label: 'AI Tutor', icon: 'message' },
   { key: 'quiz', href: 'quiz.html', label: 'Assessments', icon: 'clipboard' },
   { key: 'progress', href: 'progress.html', label: 'Learning Progress', icon: 'trend' },
+  // The study-history feed (js/pages/activity.js). Companion to Progress:
+  // progress shows current mastery, activity shows what happened and when.
+  { key: 'activity', href: 'activity.html', label: 'Activity', icon: 'clock' },
   { key: 'planner', href: 'planner.html', label: 'Study Planner', icon: 'calendar' },
   { key: 'session', href: 'session.html', label: 'Study Sessions', icon: 'clock' },
   { key: 'flashcards', href: 'flashcards.html', label: 'Flashcards', icon: 'cards' },

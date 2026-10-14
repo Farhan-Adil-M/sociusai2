@@ -17,6 +17,7 @@ import { embedTexts } from '../services/embeddings.js';
 import { retrieve, toCitation, assertSourcesExist } from '../services/retrieval.js';
 import { suggestOrganization, acceptOrganization } from '../services/organizer.js';
 import { requireAuth } from '../middleware/auth.js';
+import { sanitizeFilename } from '../constants.js';
 import { logActivity, newId, nowIso, getMeta, setMeta, delMeta } from '../store/sqlite.js';
 
 // Every accepted upload: extension → stored source type, the MIME types a
@@ -52,14 +53,8 @@ function requireFormat(ext) {
   return format;
 }
 
-// Trust only the final path segment of a client-supplied filename: a crafted
-// name like "../../etc/passwd.docx" (or a Windows backslash path) must never
-// reach a stored title. Uploads are memory-only, so this is defence in depth.
-function sanitizeFilename(name) {
-  const base = path.posix.basename(String(name ?? '').replace(/\\/g, '/'));
-  const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, '').trim();
-  return (cleaned === '' || cleaned === '.' || cleaned === '..') ? 'upload' : cleaned;
-}
+// `sanitizeFilename` now lives in constants.js (shared with the extractors,
+// which cannot import this route module without creating a cycle).
 
 // Reject a zip whose contents would unpack past the cap BEFORE extracting any
 // text, so a decompression bomb cannot exhaust memory. Throws the same
@@ -195,8 +190,13 @@ export function sourceRowToApi(row) {
  * `durationSeconds` is optional and only meaningful for video (A38); it is
  * echoed back in the source object and is NOT stored (the `sources` table has
  * no duration column — `media_assets.duration_seconds` holds it).
+ *
+ * `media` (optional, media routes only) is `{ kind?, durationSeconds?,
+ * textChars? }`. Passing it writes the v8 `media_assets` row inside the SAME
+ * atomic batch as the source, so a source can never exist without its media
+ * record. Without it nothing changes for the ordinary document upload path.
  */
-export async function persistSource(db, { type, title, url, segments, pageCount, slideCount, durationSeconds, userId }, { embed, store, remove }) {
+export async function persistSource(db, { type, title, url, segments, pageCount, slideCount, durationSeconds, media, userId }, { embed, store, remove }) {
   const sourceId = newId('src');
   // `sourceKind` is the v8 canonical kind and it SELECTS the chunker profile:
   // without it a .docx is chunked with the webpage profile (both cite
@@ -270,17 +270,38 @@ export async function persistSource(db, { type, title, url, segments, pageCount,
   // Structured persistence AFTER indexing: if it fails, delete the freshly
   // indexed vectors so no searchable orphans are left behind. Source record and
   // all segments belong together — one atomic batch.
+  //
+  // `source_kind` is written alongside `type`: they are the same value today,
+  // but the column is the v8 canonical kind that `sourceRowToApi` and the
+  // viewer read. Omitting it made an ingested image read back as 'pdf'
+  // (A39's finding) while its vectors correctly said 'image'.
   try {
-    await db.batch([
+    const rows = [
       {
-        sql: 'INSERT INTO sources (id, user_id, type, title, url, page_count, slide_count, chunk_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        args: [sourceId, userId, type, title, url ?? null, pageCount, slideCount, chunks.length, createdAt],
+        sql: `INSERT INTO sources
+                (id, user_id, type, title, url, page_count, slide_count, chunk_count, created_at, source_kind)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [sourceId, userId, type, title, url ?? null, pageCount, slideCount, chunks.length, createdAt, type],
       },
       ...segments.map((segment, i) => ({
         sql: 'INSERT INTO source_segments (source_id, seg_index, location, text) VALUES (?, ?, ?, ?)',
         args: [sourceId, i, JSON.stringify(segment.location ?? {}), segment.text],
       })),
-    ], 'write');
+    ];
+
+    if (media) {
+      rows.push({
+        sql: `INSERT INTO media_assets
+                (id, user_id, source_id, kind, url, status, duration_seconds, text_chars, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          newId('med'), userId, sourceId, media.kind ?? type, url ?? null, 'ready',
+          media.durationSeconds ?? null, media.textChars ?? null, createdAt, createdAt,
+        ],
+      });
+    }
+
+    await db.batch(rows, 'write');
   } catch (err) {
     await removeVectors();
     if (!storedModel) await Promise.all(clearEmbeddingMeta());

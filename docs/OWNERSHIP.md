@@ -7,7 +7,7 @@
 1. **Waves run sequentially.** Never start a wave until the previous one is green.
 2. **Within a wave, file sets are strictly disjoint.** No two agents in the same wave may write the same file. This is enforced by this registry.
 3. **Later waves may edit earlier waves' files** — but only the file's *owner* from the earlier wave, and only by appending to `docs/HANDOFF.md` first.
-4. **`_legacy-frontend/` is READ-ONLY.** It is the old SociusAi frontend kept for behavioural reference. Never modify it, never import from it at runtime.
+4. **`_legacy-frontend/` is retired.** It was the old SociusAi frontend kept for behavioural reference during the rebuild, and was **deleted in Phase 6 (integration)** as planned — all twelve pages were rebuilt and verified first. It remains readable in git history (commit `5eb9501`) if the old wording or edge cases are ever needed again: `git show 5eb9501 -- _legacy-frontend`. Never re-import it at runtime.
 5. **`tests/` is owned by whoever writes the feature**, except `tests/helpers.js` which is Phase 0 owned. If you need a shared helper change, note it in `docs/HANDOFF.md`.
 6. Before writing any file not listed as yours, **stop and record the conflict in `docs/HANDOFF.md`.**
 
@@ -130,7 +130,7 @@ They may **read** `shell.js`, `ui.js`, `api.js`, `auth.js`, `tokens.css`, `compo
 
 | ID | Owns | Responsibility |
 |---|---|---|
-| **I01** | Everything, via HANDOFF-only edits | Seam resolution: cross-wave wiring, remove dead code, delete `_legacy-frontend/`, purge duplicate SVG sprites. |
+| **I01** | Everything, via HANDOFF-only edits | Seam resolution: cross-wave wiring, remove dead code, purge duplicate SVG sprites. `_legacy-frontend/` deletion completed in Phase 6. |
 | **I02** | `package.json`, `README.md`, `docs/` | Docs truth pass: kill the "no authentication" lie, align README with reality. |
 
 ## Phase 7 — Test (T01–T05)

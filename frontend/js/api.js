@@ -280,10 +280,13 @@ async function exchange(path, options) {
       try {
         data = JSON.parse(text);
       } catch {
-        data = null; // not our JSON envelope (proxy error page, empty 204, …)
+        data = null; // not our JSON envelope (proxy error page, plain text, 204, …)
       }
     }
-    return { response, data };
+    // `text` is the raw body. It is kept alongside `data` so a caller that
+    // WANTS a non-JSON body (GET /api/viewer/:id/text is text/plain) can read
+    // it, instead of watching the body be parsed to null and dropped.
+    return { response, data, text };
   } catch (error) {
     throw toRequestError(error, plan);
   } finally {
@@ -302,6 +305,16 @@ async function readJson(response) {
   }
 }
 
+/**
+ * Demo-mode counterpart of a plain-text reply: fixtures are objects, but
+ * apiGetText() promises a string, so hand one back rather than a lie about
+ * the shape.
+ */
+function toPlainTextBody(data) {
+  if (typeof data === 'string') return data;
+  return JSON.stringify(data ?? '', null, 2);
+}
+
 /** The path without its query string (used for the public-endpoint check). */
 function pathOnly(path) {
   return String(path).split('?')[0];
@@ -315,25 +328,33 @@ function pathOnly(path) {
  * otherwise recurse: this module waits for authReady()).
  */
 async function request(path, options = {}) {
-  if (isMockMode()) return mockRequest(path, options);
+  // `rawText: true` → resolve with the body AS WRITTEN (see apiGetText). The
+  // request still runs the same auth, token-refresh and error path; only what
+  // a successful reply resolves with changes.
+  const wantsText = options.rawText === true;
+
+  if (isMockMode()) {
+    const data = await mockRequest(path, options);
+    return wantsText ? toPlainTextBody(data) : data;
+  }
 
   if (options.anonymous) {
-    const { response, data } = await exchange(path, options);
+    const { response, data, text } = await exchange(path, options);
     if (!response.ok) throw toApiError(response, data);
-    return data;
+    return wantsText ? text : data;
   }
 
   // Config discovery + session restore happen once per page load; this resolves
   // immediately in prototype mode and never rejects.
   await authReady();
 
-  let { response, data } = await exchange(path, { ...options, token: accessToken() });
+  let { response, data, text } = await exchange(path, { ...options, token: accessToken() });
 
   // Expired/invalid token: refresh once and replay the request once. If that is
   // not possible, route the visitor back to sign in.
   if (response.status === 401 && !PUBLIC_PATHS.has(pathOnly(path))) {
     const token = await refreshAccessToken();
-    if (token) ({ response, data } = await exchange(path, { ...options, token }));
+    if (token) ({ response, data, text } = await exchange(path, { ...options, token }));
     if (response.status === 401) {
       redirectToLoginWithNotice('Your session has expired — sign in again to continue.');
       throw new ApiError('UNAUTHENTICATED', 'Sign in required.', 401, data);
@@ -341,7 +362,7 @@ async function request(path, options = {}) {
   }
 
   if (!response.ok) throw toApiError(response, data);
-  return data;
+  return wantsText ? text : data;
 }
 
 /* --------------------------------------------------------- public surface */
@@ -349,6 +370,20 @@ async function request(path, options = {}) {
 /** GET a contract path, e.g. apiGet('/api/sources') → { sources, … }. */
 export function apiGet(path, options = {}) {
   return request(path, { ...options, method: 'GET' });
+}
+
+/**
+ * GET a contract path and resolve with the body AS WRITTEN — for endpoints
+ * that reply `text/plain` rather than the JSON envelope (e.g.
+ * `GET /api/viewer/:id/text`). apiGet() would parse that body, fail, and
+ * resolve null, silently throwing the document away.
+ *
+ * Errors still behave like every other call: the JSON error envelope (when
+ * the server sends one) is used to build a normal ApiError, so callers get
+ * `code`, `status` and `message` exactly as they do from apiGet.
+ */
+export function apiGetText(path, options = {}) {
+  return request(path, { ...options, method: 'GET', rawText: true });
 }
 
 /** POST JSON, e.g. apiPost('/api/sessions', { title }). */

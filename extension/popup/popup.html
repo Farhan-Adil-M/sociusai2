@@ -2,80 +2,157 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Socius AI Study Highlighter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Socius AI — Study Highlighter</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="panel popup-panel">
+  <div class="popup-panel">
     <header class="popup-header">
       <h1 class="popup-title">Socius AI</h1>
       <p class="popup-subtitle">Study Highlighter</p>
     </header>
 
     <div class="popup-body">
-      <div class="toggle-row">
-        <span class="field-label" id="enabled-label">Highlight relevant text</span>
-        <label class="switch">
-          <input type="checkbox" id="enabled-toggle" aria-labelledby="enabled-label">
-          <span class="switch-track"><span class="switch-thumb"></span></span>
-        </label>
-      </div>
+      <!-- ---------------------------------------------------- 1 · connection -->
+      <!-- role="status" (polite): this is the async status the student waits
+           for. It is announced once, with the reason, when the probe lands. -->
+      <section class="section" aria-labelledby="connection-heading">
+        <h2 class="section-title" id="connection-heading">Connection</h2>
 
-      <section class="account" id="account-section" hidden aria-label="Account">
-        <span class="account-title">Account</span>
+        <div class="status-block" id="status-block" role="status">
+          <p class="status-line">
+            <span class="spinner" id="status-spinner" aria-hidden="true"></span>
+            <span class="status-dot" id="status-dot" hidden aria-hidden="true"></span>
+            <span class="status-text" id="status-text">Checking connection&hellip;</span>
+          </p>
+          <p class="status-detail" id="status-detail" hidden></p>
+        </div>
 
-        <form id="login-form" novalidate>
-          <div class="field">
-            <label class="field-label" for="login-email">Email</label>
-            <input class="input" type="email" id="login-email" placeholder="you@example.com"
-                   spellcheck="false" autocomplete="username">
-          </div>
-          <div class="field">
-            <label class="field-label" for="login-password">Password</label>
-            <input class="input" type="password" id="login-password" autocomplete="current-password">
-          </div>
-          <div class="save-row">
-            <button type="submit" class="btn btn-primary" id="login-btn">Sign in</button>
-            <span class="field-error" id="login-error" hidden></span>
-          </div>
-          <p class="account-hint">Sign in to highlight pages and ask briefings.</p>
-        </form>
+        <button type="button" class="btn btn-secondary btn-sm" id="status-retry">
+          Check again
+        </button>
+      </section>
 
-        <div class="account-row" id="account-signed-in" hidden>
-          <span class="account-email" id="account-email"></span>
-          <button type="button" class="btn btn-secondary" id="logout-btn">Sign out</button>
+      <!-- ------------------------------------------------------- 2 · account -->
+      <section class="section" id="account-section" aria-labelledby="account-heading">
+        <h2 class="section-title" id="account-heading">Account</h2>
+
+        <!-- Signed out. The sentence is the honest default: it never claims a
+             user that is not there. -->
+        <div class="account-state" id="account-signed-out">
+          <p class="account-note" id="account-note" role="status">Nobody is signed in.</p>
+
+          <!-- Sign-in form. Only shown once the server has confirmed it has
+               accounts (GET /api/health → checks.auth.mode === 'supabase'). -->
+          <form id="login-form" class="stack-3" novalidate hidden>
+            <div class="field">
+              <label class="label" for="login-email">Email</label>
+              <input class="input" type="email" id="login-email" name="email"
+                     placeholder="you@example.com" spellcheck="false"
+                     autocomplete="username" aria-describedby="login-error">
+            </div>
+            <div class="field">
+              <label class="label" for="login-password">Password</label>
+              <input class="input" type="password" id="login-password" name="password"
+                     autocomplete="current-password" aria-describedby="login-error">
+            </div>
+            <p class="error" id="login-error" role="alert" hidden></p>
+            <button type="submit" class="btn btn-primary btn-block" id="login-btn">Sign in</button>
+          </form>
+
+          <!-- Why the form is absent, when it is absent. Always one of these
+               is visible, so the section is never silently empty. -->
+          <p class="help" id="account-unreachable-note" hidden>
+            This popup could not reach the Socius AI server, so it cannot tell whether
+            that server has accounts. Fix the API URL below and check again.
+          </p>
+          <p class="help" id="account-prototype-note" hidden>
+            This Socius AI server runs in <strong>prototype mode</strong>: it has no
+            accounts, so there is nobody to sign in as. Everything still works locally.
+          </p>
+          <p class="help" id="account-worker-note" hidden>
+            The extension&rsquo;s background worker did not answer, so the sign-in state
+            could not be read. Reload the extension from <code>chrome://extensions</code>
+            and open this popup again.
+          </p>
+        </div>
+
+        <!-- Signed in. Only the email is rendered — the worker keeps the
+             session tokens and this popup never receives them. -->
+        <div class="account-state" id="account-signed-in" hidden>
+          <p class="account-note">Signed in as</p>
+          <p class="account-email" id="account-email"></p>
+          <button type="button" class="btn btn-secondary btn-block" id="logout-btn">
+            Sign out
+          </button>
         </div>
       </section>
 
-      <form id="settings-form" novalidate>
-        <div class="field">
-          <label class="field-label" for="site-url">Socius AI site URL</label>
-          <input class="input" type="text" id="site-url" name="siteUrl"
-                 placeholder="https://socius-ai.vercel.app" spellcheck="false" autocomplete="off">
-          <p class="field-error" id="site-url-error" hidden>Must start with http:// or https://</p>
+      <!-- ------------------------------------------------------ 3 · settings -->
+      <section class="section" aria-labelledby="settings-heading">
+        <h2 class="section-title" id="settings-heading">Settings</h2>
+
+        <div class="setting-row">
+          <span class="setting-text">
+            <label class="label" for="enabled-toggle">Highlight relevant text</label>
+            <span class="help" id="enabled-hint">
+              Marks sentences on a page that match your study material.
+            </span>
+          </span>
+          <span class="switch">
+            <input type="checkbox" id="enabled-toggle" aria-describedby="enabled-hint">
+            <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+          </span>
         </div>
 
-        <div class="field">
-          <label class="field-label" for="api-url">API URL</label>
-          <input class="input" type="text" id="api-url" name="apiUrl"
-                 placeholder="https://socius-ai.vercel.app" spellcheck="false" autocomplete="off">
-          <p class="field-error" id="api-url-error" hidden>Must start with http:// or https://</p>
-        </div>
+        <form id="settings-form" class="stack-3" novalidate>
+          <div class="field">
+            <label class="label" for="api-url">API URL</label>
+            <input class="input" type="url" id="api-url" name="apiUrl" inputmode="url"
+                   spellcheck="false" autocomplete="off"
+                   placeholder="https://socius-ai.vercel.app"
+                   aria-describedby="api-url-help api-url-error">
+            <p class="help" id="api-url-help">
+              Where the extension calls <code>/api</code>. Needs a host permission —
+              this popup asks for it when you save.
+            </p>
+            <p class="error" id="api-url-error" role="alert" hidden></p>
+          </div>
 
-        <div class="save-row">
-          <button type="submit" class="btn btn-primary" id="save-btn">Save</button>
-          <span class="badge badge-green" id="saved-badge" hidden>Saved</span>
-          <span class="field-error" id="save-error" hidden>Could not save settings.</span>
-        </div>
-      </form>
+          <div class="field">
+            <label class="label" for="site-url">Socius AI site URL</label>
+            <input class="input" type="url" id="site-url" name="siteUrl" inputmode="url"
+                   spellcheck="false" autocomplete="off"
+                   placeholder="https://socius-ai.vercel.app/dashboard.html"
+                   aria-describedby="site-url-help site-url-error">
+            <p class="help" id="site-url-help">
+              The page the <em>Open Socius AI</em> button opens, so you land signed in.
+            </p>
+            <p class="error" id="site-url-error" role="alert" hidden></p>
+          </div>
 
-      <div class="status-line" id="status-line" role="status" aria-live="polite">
-        <span class="spinner" id="status-spinner"></span>
-        <span class="status-dot" id="status-dot" hidden></span>
-        <span class="status-text" id="status-text">Checking connection&hellip;</span>
-      </div>
+          <div class="save-row">
+            <button type="submit" class="btn btn-primary" id="save-btn">Save settings</button>
+            <button type="button" class="btn btn-ghost" id="reset-btn">Reset to defaults</button>
+          </div>
+          <!-- role="status": the async save outcome, announced politely. -->
+          <p class="help save-feedback" id="save-feedback" role="status" hidden></p>
+        </form>
 
-      <button type="button" class="btn btn-primary btn-block" id="open-app-btn">Open Socius AI</button>
+        <p class="help">
+          Settings are stored in <code>chrome.storage.sync</code>, so they follow your
+          Chrome account and are readable only by this extension. Nothing secret is kept
+          here — the sign-in session stays in the background worker.
+        </p>
+      </section>
+
+      <button type="button" class="btn btn-primary btn-block" id="open-app-btn">
+        Open Socius AI
+      </button>
+      <!-- role="status": the async outcome of opening the app. A failure here
+           is real (bad site URL, worker down) and must never be silent. -->
+      <p class="help" id="open-feedback" role="status" hidden></p>
     </div>
   </div>
 

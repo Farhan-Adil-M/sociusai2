@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Activity — Socius AI</title>
+  <meta name="description" content="Your study history: uploads, quizzes, tutor questions and level changes, newest first.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- The four shared sheets in the agreed order (docs/ARCHITECTURE.md §5):
+       tokens → base → components → shell. No page sheet: this page is built
+       only from existing components.css classes (A40's HANDOFF note). -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+</head>
+<body>
+  <!-- One shell: shell.js mounts the sidebar, topbar, health pill and mobile
+       drawer into #app-shell and moves this <main> into the content column. -->
+  <div id="app-shell"></div>
+
+  <main id="main">
+    <div class="container">
+      <!-- js/pages/activity.js renders its OWN header (page-head + h1), so the
+           HTML contract is a single host div. It replaces this node as one unit
+           for loading, empty and failed states alike. -->
+      <div data-activity-root></div>
+
+      <!-- Polite live region: result counts and refresh outcomes are announced
+           without stealing focus. Rendered sr-only by the shared .sr-only class. -->
+      <p class="sr-only" role="status" aria-live="polite" data-activity-live></p>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/activity.js"></script>
+</body>
+</html>

@@ -42,20 +42,18 @@
 //     a size cap and a timeout. See fetchDocument().
 
 import express from 'express';
-import AdmZip from 'adm-zip';
 import path from 'node:path';
 import { config } from '../config.js';
 import { ApiError } from '../middleware/errors.js';
 import { requireAuth } from '../middleware/auth.js';
-import { chunkSegments } from '../services/chunker.js';
 import { extractWebpage } from '../services/extract/webpage.js';
 import { extractPdf } from '../services/extract/pdf.js';
 import { extractPptx } from '../services/extract/pptx.js';
 import { extractDocx } from '../services/extract/docx.js';
 import { embedTexts } from '../services/embeddings.js';
 import { addChunks, deleteChunks } from '../store/vectorStore.js';
-import { sourceRowToApi } from '../routes/sources.js';
-import { logActivity, newId, nowIso, getMeta, setMeta, delMeta } from '../store/sqlite.js';
+import { persistSource, sourceRowToApi, assertZipWithinLimits } from '../routes/sources.js';
+import { logActivity, newId, nowIso } from '../store/sqlite.js';
 
 /* --------------------------------------------------------------- limits */
 
@@ -63,7 +61,6 @@ const TITLE_MAX = 160;              // contract: title ≤160 chars
 const TEXT_MIN = 50;                // contract: text 50–200 000 chars
 const TEXT_MAX = 200000;
 const URL_MAX = 2048;               // far above any real share link
-const MAX_UNCOMPRESSED_MB = Number(process.env.ZIP_MAX_UNCOMPRESSED_MB ?? 100);
 const FETCH_TIMEOUT_MS = Number(process.env.SHARE_FETCH_TIMEOUT_MS ?? 15000);
 // Sandbox-only escape hatch for the private-host SSRF blocklist (OFF by
 // default; only a trusted sandbox that must fetch from localhost sets it).
@@ -221,26 +218,9 @@ async function fetchDocument(parsedUrl) {
 }
 
 // .pptx/.docx are ZIP containers: cap the UNCOMPRESSED size before extraction
-// so a decompression bomb cannot exhaust memory. Mirrors the guard in
-// sources.js (which A34 owns and has not exported); kept local on purpose and
-// flagged for consolidation in docs/HANDOFF.md.
-function assertZipWithinLimits(buffer, label) {
-  let zip;
-  try {
-    zip = new AdmZip(buffer);
-  } catch {
-    throw new ApiError(400, 'VALIDATION_ERROR',
-      `This file could not be read as a ${label}. Re-export it and try again.`);
-  }
-  let total = 0;
-  for (const entry of zip.getEntries()) {
-    total += entry.header?.size ?? 0;
-    if (total > MAX_UNCOMPRESSED_MB * 1024 * 1024) {
-      throw new ApiError(413, 'FILE_TOO_LARGE',
-        `This ${label} unpacks to more than ${MAX_UNCOMPRESSED_MB} MB of text — too large to process safely.`);
-    }
-  }
-}
+// so a decompression bomb cannot exhaust memory. One implementation, shared
+// with the upload route via `sources.js#assertZipWithinLimits` — this file
+// used to keep a private byte-for-byte copy of it.
 
 async function extractDocument(ext, buffer) {
   if (ext === '.pptx') assertZipWithinLimits(buffer, 'PowerPoint');
@@ -263,68 +243,6 @@ async function recordShare(db, { userId, url, title, kind }) {
   return id;
 }
 
-// Chunk → embed → index → persist a shared source, with the same compensation
-// (remove freshly indexed vectors on a later failure) and embedding-model guard
-// that sources.js#persistSource uses, so a shared source is byte-for-byte as
-// citable as an uploaded one. Every primitive is reused; only the small
-// orchestration lives here because persistSource is not exported by A34's
-// sources.js (flagged for consolidation in docs/HANDOFF.md).
-async function persistSharedSource(db, { type, title, url, segments, pageCount, slideCount, userId }, { embed, store, remove }) {
-  const sourceId = newId('src');
-  const chunks = chunkSegments(segments, { sourceId, sourceKind: type });
-  if (chunks.length === 0) {
-    throw new ApiError(400, 'EMPTY_CONTENT', 'No usable text was found in the shared content.');
-  }
-
-  const vectors = await embed(chunks.map((c) => c.text));
-
-  const storedModel = await getMeta(db, 'embed_model');
-  if (storedModel && storedModel !== config.nimEmbedModel) {
-    throw new ApiError(503, 'CHROMA_UNAVAILABLE',
-      `The search index was built with "${storedModel}" but NIM_EMBED_MODEL is "${config.nimEmbedModel}". Run npm run reindex, then try again.`);
-  }
-  if (!storedModel && vectors[0]) {
-    await setMeta(db, 'embed_model', config.nimEmbedModel);
-    await setMeta(db, 'embed_dimension', String(vectors[0].length));
-  }
-
-  const metadatas = chunks.map((c) => ({
-    ...(c.metadata ?? {}),
-    sourceId, sourceKind: type, type, title, chunkIndex: c.chunkIndex,
-    ...(url ? { url } : {}),
-    ownerId: userId, // per-user vector ownership (retrieval filters on it)
-  }));
-  const ids = chunks.map((c) => `${sourceId}_${c.chunkIndex}`);
-  const createdAt = nowIso();
-  const clearEmbedMeta = () => (storedModel ? Promise.resolve() : Promise.all([
-    delMeta(db, 'embed_model'), delMeta(db, 'embed_dimension'),
-  ]));
-
-  try {
-    await store({ ids, embeddings: vectors, documents: chunks.map((c) => c.text), metadatas, userId });
-  } catch (err) {
-    await remove(ids);
-    await clearEmbedMeta();
-    throw err;
-  }
-
-  try {
-    await db.batch([
-      { sql: 'INSERT INTO sources (id, user_id, type, title, url, page_count, slide_count, chunk_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        args: [sourceId, userId, type, title, url ?? null, pageCount, slideCount, chunks.length, createdAt] },
-      ...segments.map((segment, i) => ({
-        sql: 'INSERT INTO source_segments (source_id, seg_index, location, text) VALUES (?, ?, ?, ?)',
-        args: [sourceId, i, JSON.stringify(segment.location ?? {}), segment.text],
-      })),
-    ], 'write');
-  } catch (err) {
-    await remove(ids);
-    await clearEmbedMeta();
-    throw err;
-  }
-
-  return { id: sourceId, type, title, url, pageCount, slideCount, chunkCount: chunks.length, createdAt };
-}
 
 /* ---------------------------------------------------------------- the router */
 
@@ -362,12 +280,12 @@ export function shareRouter({ db, ai, vector, auth }) {
             'Socius cannot read that page on its own. Paste the page text, or share a direct link to a .pdf, .docx or .pptx file.');
         }
         const extracted = extractWebpage({ url: parsedUrl.toString(), title, text });
-        source = await persistSharedSource(db, { type: 'webpage', ...extracted, userId }, { embed, store, remove });
+        source = await persistSource(db, { type: 'webpage', ...extracted, userId }, { embed, store, remove });
       } else {
         // Document path: fetch the binary and run the real extractor.
         const buffer = await fetchDocument(parsedUrl);
         const extracted = await extractDocument(ext, buffer);
-        source = await persistSharedSource(
+        source = await persistSource(
           db,
           { type: DOC_EXTENSIONS.get(ext), title: documentTitle(parsedUrl, title), url: parsedUrl.toString(), ...extracted, userId },
           { embed, store, remove },

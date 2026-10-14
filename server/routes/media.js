@@ -27,15 +27,17 @@
 // =============================================================================
 
 import express from 'express';
+import path from 'node:path';
+import multer from 'multer';
 import { config } from '../config.js';
 import { ApiError } from '../middleware/errors.js';
 import { requireAuth } from '../middleware/auth.js';
-import { chunkSegments } from '../services/chunker.js';
 import { fetchYouTubeTranscript } from '../services/media/youtube.js';
+import { extractImage } from '../services/extract/image.js';
 import { embedTexts } from '../services/embeddings.js';
 import { addChunks, deleteChunks } from '../store/vectorStore.js';
-import { sourceRowToApi } from './sources.js';
-import { getMeta, setMeta, delMeta, logActivity, newId, nowIso } from '../store/sqlite.js';
+import { persistSource } from './sources.js';
+import { logActivity } from '../store/sqlite.js';
 
 /* ------------------------------------------------------------- validation */
 
@@ -67,120 +69,6 @@ function readRequest(body) {
 }
 
 /* ------------------------------------------------------------- persistence */
-
-/**
- * Ingest the transcript as a source: chunk → embed → store vectors → write the
- * structured rows, with the same all-or-nothing guarantees as
- * `POST /api/sources/upload` (server/routes/sources.js#persistSource). If
- * embedding fails nothing is saved; if the vector write partially fails, every
- * vector and the freshly written rows are removed so no orphan is left behind.
- *
- * Duplication note: `persistSource` in sources.js is not exported (A34 owns that
- * file and is editing it), so this route carries its own copy of the pipeline.
- * A HANDOFF entry asks for it to be exported so the two can share one path.
- */
-async function persistYouTubeSource(db, { transcript, title }, { embed, store, remove, userId }) {
-  const sourceId = newId('src');
-  const url = transcript.url;
-
-  // The chunker, NOT this route, decides chunk boundaries and citation
-  // metadata. Passing `sourceKind: 'youtube'` selects the transcript profile
-  // (700/120 on sentence + `[hh:mm:ss]` boundaries) and stamps every chunk with
-  // `sourceKind: 'youtube'`, so `retrieval.js#toCitation` renders a timestamp
-  // citation instead of a paragraph one.
-  const chunks = chunkSegments(transcript.segments, { sourceId, sourceKind: 'youtube' });
-  if (chunks.length === 0) {
-    // Unreachable while fetchYouTubeTranscript rejects empty transcripts, but a
-    // source with no passages would be uncitable, so refuse it rather than
-    // storing an empty one.
-    throw new ApiError(400, 'EMPTY_CONTENT', 'The captions could not be turned into readable passages.');
-  }
-
-  const vectors = await embed(chunks.map((chunk) => chunk.text));
-
-  // Embedding-model guard (contract v1.2): a mixed-model index would silently
-  // corrupt retrieval, so a mismatch stops ingestion with a reindex instruction.
-  const storedModel = await getMeta(db, 'embed_model');
-  if (storedModel && storedModel !== config.nimEmbedModel) {
-    throw new ApiError(503, 'CHROMA_UNAVAILABLE',
-      `The search index was built with "${storedModel}" but NIM_EMBED_MODEL is "${config.nimEmbedModel}". Run npm run reindex, then try again.`);
-  }
-  if (!storedModel && vectors[0]) {
-    await setMeta(db, 'embed_model', config.nimEmbedModel);
-    await setMeta(db, 'embed_dimension', String(vectors[0].length));
-  }
-
-  // The chunker owns the citation surface; the identity fields are re-asserted
-  // after the spread exactly as sources.js does. `ownerId` is the per-user
-  // ownership filter the vector stores read.
-  const metadatas = chunks.map((chunk) => ({
-    ...(chunk.metadata ?? {}),
-    sourceId,
-    sourceKind: 'youtube',
-    type: 'youtube',
-    title,
-    chunkIndex: chunk.chunkIndex,
-    url,
-    ownerId: userId,
-  }));
-
-  const ids = chunks.map((chunk) => `${sourceId}_${chunk.chunkIndex}`);
-  const createdAt = nowIso();
-  const removeVectors = () => (remove ?? deleteChunks)(ids);
-  const clearEmbeddingMeta = () => [delMeta(db, 'embed_model'), delMeta(db, 'embed_dimension')];
-
-  try {
-    await store({
-      ids,
-      embeddings: vectors,
-      documents: chunks.map((chunk) => chunk.text),
-      metadatas,
-      userId,
-    });
-  } catch (err) {
-    await removeVectors();
-    if (!storedModel) await Promise.all(clearEmbeddingMeta());
-    throw err;
-  }
-
-  try {
-    // One atomic batch: the source record, its per-passage segments, and the
-    // v8 `media_assets` row that holds what only a media route knows (duration,
-    // transcript length, which language was read).
-    await db.batch([
-      {
-        sql: `INSERT INTO sources
-                (id, user_id, type, title, url, page_count, slide_count, chunk_count, created_at, source_kind)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [sourceId, userId, 'youtube', title, url, null, null, chunks.length, createdAt, 'youtube'],
-      },
-      ...transcript.segments.map((segment, i) => ({
-        sql: 'INSERT INTO source_segments (source_id, seg_index, location, text) VALUES (?, ?, ?, ?)',
-        args: [sourceId, i, JSON.stringify(segment.location ?? {}), segment.text],
-      })),
-      {
-        sql: `INSERT INTO media_assets
-                (id, user_id, source_id, kind, url, status, duration_seconds, text_chars, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          newId('med'), userId, sourceId, 'youtube', url, 'ready',
-          transcript.durationSeconds, transcript.charCount, createdAt, createdAt,
-        ],
-      },
-    ], 'write');
-  } catch (err) {
-    await removeVectors();
-    if (!storedModel) await Promise.all(clearEmbeddingMeta());
-    throw err;
-  }
-
-  const row = await db.get('SELECT * FROM sources WHERE id = ?', sourceId);
-  return {
-    source: sourceRowToApi(row),
-    durationSeconds: transcript.durationSeconds,
-    sizeLabel: videoSizeLabel(transcript.durationSeconds),
-  };
-}
 
 /** "8:32 video" for a 512-second video — the contract's YouTube sizeLabel.
  *  Mirrors the duration formatter in sources.js (not exported from there). */
@@ -216,28 +104,103 @@ export function mediaRouter({ db, ai, vector, auth }) {
     const transcript = await fetchYouTubeTranscript({ url, language });
     const title = titleOverride ?? transcript.title.slice(0, MAX_TITLE_CHARS);
 
-    const { source, durationSeconds, sizeLabel } = await persistYouTubeSource(
-      db,
-      { transcript, title },
-      { embed, store, remove, userId },
-    );
+    // One implementation of ingest, shared with `POST /api/sources/upload` —
+    // this route used to carry a ~100-line private copy of the same pipeline
+    // (chunk → embed → model guard → vector store → atomic batch →
+    // compensation). `persistSource` now also writes the v8 `media_assets` row
+    // in the same atomic batch, so a video source can never exist without its
+    // media record.
+    const persisted = await persistSource(db, {
+      type: 'youtube',
+      title,
+      url,
+      segments: transcript.segments,
+      pageCount: null,
+      slideCount: null,
+      durationSeconds: transcript.durationSeconds,
+      media: { kind: 'youtube', durationSeconds: transcript.durationSeconds, textChars: transcript.charCount },
+      userId,
+    }, { embed, store, remove });
 
     await logActivity(
       db,
       'upload',
       null,
-      `${title} (${sizeLabel}${transcript.isAutoGenerated ? ', auto captions' : ''})`,
+      `${title} (${videoSizeLabel(transcript.durationSeconds)}${transcript.isAutoGenerated ? ', auto captions' : ''})`,
       null,
       userId,
     );
 
     res.status(201).json({
-      source: { ...source, sizeLabel, ...(durationSeconds != null ? { durationSeconds } : {}) },
+      source: persisted,
       language: transcript.language,
       isAutoGenerated: transcript.isAutoGenerated,
       segmentCount: transcript.segments.length,
       textChars: transcript.charCount,
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/media/ocr — image → text (Wave 4, A39). Long unwired: A39 owned
+  // no route file, so the service was built and proven but returned 404. This
+  // is the missing seam. A23's `material-import.js` already posts exactly
+  // `file` + `ingest=1` here and reads `data.source` back.
+  // -------------------------------------------------------------------------
+  const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
+  const uploadImage = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
+    fileFilter: (req, file, cb) => {
+      if (!IMAGE_EXT.test(path.extname(file.originalname ?? '').toLowerCase())) {
+        return cb(new ApiError(400, 'UNSUPPORTED_FILE', 'Only .png, .jpg, and .webp images can be read for text.'));
+      }
+      cb(null, true);
+    },
+  });
+
+  router.post('/ocr', (req, res, next) => uploadImage.single('file')(req, res, (err) => {
+    if (err?.code === 'LIMIT_FILE_SIZE') {
+      return next(new ApiError(413, 'FILE_TOO_LARGE',
+        `This file is too large — the upload limit is ${config.maxUploadMb} MB.`));
+    }
+    return next(err);
+  }), async (req, res) => {
+    if (!req.file) throw new ApiError(400, 'VALIDATION_ERROR', 'Attach one image in the "file" field.');
+    const ingest = String(req.body?.ingest ?? '') === '1';
+
+    // `extractImage` owns ALL validation — size, extension, MIME, magic bytes,
+    // pixel dimensions — and throws 413 FILE_TOO_LARGE / 400 UNSUPPORTED_FILE
+    // itself. Do not re-validate here; two guards drift.
+    const { segments, ocr } = await extractImage(req.file.buffer, {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+    });
+
+    // `ocr` is the only extra field; persistSource ignores it. It MUST be
+    // echoed — the student has to know when a read may be unreliable.
+    const body = {
+      text: ocr.text, charCount: ocr.charCount, language: ocr.language,
+      confidence: ocr.confidence, reliability: ocr.reliability, note: ocr.note,
+      lineCount: ocr.lineCount, unreliableLines: ocr.unreliableLines, durationMs: ocr.durationMs,
+    };
+
+    if (!ingest) return res.json(body);
+
+    const title = path.basename(String(req.file.originalname ?? 'image')).slice(0, 160);
+    const source = await persistSource(db, {
+      type: 'image',
+      title,
+      url: null,
+      segments,
+      pageCount: null,
+      slideCount: null,
+      media: { kind: 'image', textChars: ocr.charCount },
+      userId: req.userId,
+    }, { embed, store, remove });
+
+    await logActivity(db, 'upload', null, `${title} (image)`, null, req.userId);
+    return res.status(201).json({ ...body, source });
   });
 
   return router;

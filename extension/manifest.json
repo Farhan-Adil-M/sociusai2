@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Socius AI — Study Highlighter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Highlights passages on the web that connect to your Socius AI study documents.",
   "browser_specific_settings": {
     "gecko": {
@@ -10,11 +10,12 @@
       "data_collection_permissions": { "required": ["none"] }
     }
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting"],
   "host_permissions": [
-    "http://localhost:3000/*",
-    "http://127.0.0.1:3000/*",
-    "https://socius-ai.vercel.app/*"
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://socius-ai.vercel.app/*",
+    "https://sociusai2.vercel.app/*"
   ],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
@@ -28,7 +29,7 @@
   ],
   "background": {
     "service_worker": "background.js",
-    "scripts": ["background.js"]
+    "type": "module"
   },
   "action": {
     "default_popup": "popup/popup.html",

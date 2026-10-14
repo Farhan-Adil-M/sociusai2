@@ -1,10 +1,10 @@
-# Socius AI — API Contract (v2.0)
+# Socius AI — API Contract (v2.1)
 
 Shared specification between the backend (`server/`), the frontend (`frontend/`), and the browser extension (`extension/`).
 **Owner: agent A05 (`docs/API_CONTRACT.md`).** Every agent builds against this file; propose a change to it before editing (see `docs/OWNERSHIP.md`).
 
 Base URL: same origin — Express serves the API under `/api` and the static frontend at `/`.
-All request and response bodies are JSON (`Content-Type: application/json`) except multipart file upload.
+Request and response bodies are JSON (`Content-Type: application/json`) except for multipart file uploads, and one body that is **not** JSON by design: `GET /api/viewer/:sourceId/text` replies `text/plain`, because the reader wants the document as written rather than a JSON-encoded string. `frontend/js/api.js` exposes `apiGetText()` for that case. The tutor endpoint is requested with `Accept: text/event-stream, application/json` and **currently answers JSON** — one complete `answer` in a single body — while `apiStream()` keeps a server-sent-event branch ready for a deployment that does stream; callers do not have to care which they get.
 
 ## How to read this file (read this before building)
 
@@ -47,9 +47,11 @@ Stable error codes:
 | `ONBOARDING_COMPLETE` | 409 | Onboarding already finished (see v1.4) |
 | `UNAUTHENTICATED` | 401 | Missing/expired/invalid Bearer token on a private endpoint (v1.6) |
 | `STORAGE_FETCH_FAILED` | 422 | Direct-to-Storage ingest could not read the object back (see `/sources/storage-ingest`) |
-| `FETCH_FAILED` | 502 | A remote document/site/video could not be fetched — **planned (Wave 4)** |
-| `NO_TRANSCRIPT` | 422 | The YouTube video has no usable transcript/captions — **planned (Wave 4)** |
-| `OCR_FAILED` | 422 | The image could not be read into text — **planned (Wave 4)** |
+| `FETCH_FAILED` | 502 | A remote document/site/video could not be fetched — **shipped (Wave 4)** |
+| `NO_TRANSCRIPT` | 422 | The YouTube video has no usable transcript/captions — **shipped (Wave 4)** |
+| `OCR_FAILED` | 422 | The image could not be read into text — **shipped (Wave 4)** |
+| `OCR_TIMEOUT` | 422 | The image read exceeded `OCR_TIMEOUT_MS` (default 45 s) and was stopped part-way; the message says how far the engine got — **shipped (Wave 4)** |
+| `OCR_UNAVAILABLE` | 503 | The OCR engine's language data is not installed and could not be fetched — **shipped (Wave 4)** |
 | `INTERNAL` | 500 | Unexpected server error |
 
 **IDs:** readable, server-generated strings: `src_…` (source), `ses_…` (study session), `deck_…` (flashcard deck), `quiz_…` (quiz), `card_…` (flashcard), `shr_…` (share, Wave 4). A client-supplied id in a body is never authoritative.
@@ -71,7 +73,7 @@ Stable error codes:
 - `type`: `"pdf" | "pptx" | "webpage"` today; Wave 4 adds `"docx" | "youtube" | "image"` (**planned**)
 - `title`: filename for uploads; webpage title (or hostname) for webpages
 - `url`: set for webpages, `null` otherwise
-- `location`: `{ "page": n }` for PDF, `{ "slide": n }` for PPTX, `{ "paragraph": n }` for webpages, or `null` if unknown. Wave 4 adds `{ "timestamp": "mm:ss" }` (YouTube) and `{ "segment": n }` (image/DOCX) (**planned**)
+- `location`: `{ "page": n }` for PDF, `{ "slide": n }` for PPTX, `{ "paragraph": n }` for webpages, or `null` if unknown. Wave 4 adds `{ "timestamp": "mm:ss" }` (YouTube) and `{ "paragraph": n }` (image/DOCX) — **shipped**; the `paragraph` key is what `chunker.js#makeChunk` copies into citation metadata, so a `segment` key would be dropped and the citation would lose its location.
 - `score`: Chroma similarity (0–1, higher = closer); optional, may be omitted
 
 Frontend rendering guidance: show `title` + `location` as the citation chip; expose `excerpt` and `url` on expand/click.
@@ -518,8 +520,8 @@ The original v1.0 non-goals were: real authentication, multi-user profiles, brow
 | Multi-user profiles | **Shipped in v1.6** (per-user ownership) |
 | Browser-extension capture | **Shipped** (`extension/`, v0.2.0 — relevance + briefing) |
 | Cloud deployment | **Shipped** (Vercel; see README "Deploying to Vercel") |
-| Lecture-video processing | **Planned — Wave 4** (`POST /api/media/youtube`) |
-| OCR for scanned PDFs / images | **Planned — Wave 4** (`POST /api/media/ocr`) |
+| Lecture-video processing | **Shipped — Wave 4** (`POST /api/media/youtube`) |
+| OCR for scanned PDFs / images | **Shipped — Wave 4** (`POST /api/media/ocr`) |
 | Spaced-repetition scheduling | **Not implemented** (decks persist per-card `known`/`review` only) |
 
 ---
@@ -783,7 +785,7 @@ After a **successful session-scoped tutor answer** (`sessionId` given, `needsCon
 
 # v2.0 — Wave 4: adaptive levels, planner, advice, share, viewer, media & events (2026-10-14)
 
-**Status: planned (Wave 4) — none of the endpoints in this section exists yet.** They are the agreed target for agents A31–A40 (`server/routes/adaptive.js`, `planner.js`, `advice.js`, `share.js`, `viewer.js`, `media.js`, `events.js`) and for the page/component agents that consume them. All are **private** (Bearer auth; prototype mode uses the fixed dev user). All are additive: no shipped request/response shape changes. New error codes introduced here: `FETCH_FAILED` (502), `NO_TRANSCRIPT` (422), `OCR_FAILED` (422).
+**Status: shipped (Wave 4) — every endpoint below exists and is mounted.** They were built by agents A31–A40 (`server/routes/adaptive.js`, `planner.js`, `advice.js`, `share.js`, `viewer.js`, `media.js`, `events.js`) and are consumed by their pages/components. All are **private** (Bearer auth; prototype mode uses the fixed dev user). All are additive: no shipped request/response shape changes. New error codes introduced here: `FETCH_FAILED` (502), `NO_TRANSCRIPT` (422), `OCR_FAILED` (422), `OCR_TIMEOUT` (422), `OCR_UNAVAILABLE` (503).
 
 ## Difficulty levels (the 1–4 scale, deterministic)
 
@@ -796,13 +798,13 @@ This is the *adaptive* surface that replaces the three-word `easy|medium|hard` s
 | `3` | `proficient` | `0.6 ≤ mastery < 0.8` | `medium` |
 | `4` | `advanced` | `mastery ≥ 0.8` | `hard` |
 
-`mastery = correct / total` over all graded attempts for the topic; a topic with no attempts reports level `1`. `level` is always an **integer 1–4**; `levelLabel` is the string above. A31 owns the exact thresholds — moving a boundary is compatible (the wire shape is unchanged); changing the 1–4 type or the label enum is not.
+`mastery = correct / total` over all graded attempts for the topic. **A topic with no attempts has no level:** the response reports `level: null`, `levelLabel: "unassessed"`, `masteryPercent: null` and `hasEvidence: false` — never level `1`, because unassessed is not the same thing as weak. `level`, when present, is an **integer 1–4**; `levelLabel` is the string above (or `"unassessed"` when `level` is `null`). A31 owns the exact thresholds — moving a boundary is compatible (the wire shape is unchanged); changing the 1–4 type or the label enum is not.
 
 ## New source types & citation locations (planned)
 
-Wave 4 shares/media add source `type` values `"docx" | "youtube" | "image"` and citation `location` values `{ "timestamp": "mm:ss" }` (YouTube; `mm:ss` or `h:mm:ss`) and `{ "segment": n }` (image/DOCX). Everything else in the source object and the Citation schema is unchanged.
+Wave 4 shares/media add source `type` values `"docx" | "youtube" | "image"` and citation `location` values `{ "timestamp": "mm:ss" }` (YouTube; `mm:ss` or `h:mm:ss`) and `{ "paragraph": n }` (image/DOCX — the key `chunker.js#makeChunk` preserves; it does not copy `segment`). Everything else in the source object and the Citation schema is unchanged.
 
-## `POST /api/adaptive/generate` — `Status: planned (Wave 4)`
+## `POST /api/adaptive/generate` — `Status: shipped (Wave 4)`
 
 Generate a source-grounded multiple-choice quiz **tagged with a difficulty level 1–4**. Same answer-key protection as `POST /api/quiz/generate`: the key never leaves the backend.
 
@@ -844,7 +846,7 @@ Generate a source-grounded multiple-choice quiz **tagged with a difficulty level
 
 **Errors:** 400 `VALIDATION_ERROR` (bad `topic`/`level`/`questionCount`/`sourceIds`), 400 `SESSION_EMPTY`, 404 `SOURCE_NOT_FOUND`, 404 `SESSION_NOT_FOUND`, 422 `QUIZ_CONTENT_INVALID`, 502 `NIM_ERROR`, 503 `CHROMA_UNAVAILABLE`, 504 `NIM_TIMEOUT`.
 
-## `POST /api/adaptive/answer` — `Status: planned (Wave 4)`
+## `POST /api/adaptive/answer` — `Status: shipped (Wave 4)`
 
 Submit a full attempt; deterministic grading; reveals the key; updates the learner model **once** and reports the level change.
 
@@ -874,7 +876,7 @@ One entry per question; `choiceId` is `"a".."d"` or `null` (unanswered → incor
 
 **Errors:** 400 `VALIDATION_ERROR`, 404 `QUIZ_NOT_FOUND`, 409 `QUIZ_ALREADY_ANSWERED`, 500 `INTERNAL`.
 
-## `GET /api/adaptive/progress` — `Status: planned (Wave 4)`
+## `GET /api/adaptive/progress` — `Status: shipped (Wave 4)`
 
 Per-topic mastery rolled up **to a level**. Read-only; no AI or vector calls.
 
@@ -895,7 +897,7 @@ Per-topic mastery rolled up **to a level**. Read-only; no AI or vector calls.
 
 **Errors:** 500 `INTERNAL`.
 
-## `GET /api/planner` — `Status: planned (Wave 4)`
+## `GET /api/planner` — `Status: shipped (Wave 4)`
 
 A server-computed study plan over **stored evidence only**. Replaces client-side-only planning. Deterministic; **no AI call.**
 
@@ -918,12 +920,12 @@ A server-computed study plan over **stored evidence only**. Replaces client-side
 }
 ```
 - `activity`: `"quiz" | "review" | "flashcards" | "tutor"` (how the server proposes to practise).
-- `hasEvidence: false` with `items: []` when there is no quiz history yet; `summary` then tells the learner to take a first diagnostic quiz. **The server never invents a topic or a mastery number.**
+- `hasEvidence: false` with `items: []` **when the planner found nothing to schedule** — no graded answers and no flashcards due. It is `true` whenever `items[]` has something to act on, including a deck-only topic whose flashcards are actually due (`level` stays `null` there — no graded answer means no level and no mastery number, only a due card). `summary` tells the learner to take a first diagnostic quiz when there is no history at all. **The server never invents a topic or a mastery number.**
 - `sourceIds`: the user's own source ids that cover the topic (may be empty).
 
 **Errors:** 400 `VALIDATION_ERROR` (bad `days`), 500 `INTERNAL`.
 
-## `GET /api/advice` — `Status: planned (Wave 4)`
+## `GET /api/advice` — `Status: shipped (Wave 4)`
 
 "What should I revise next", over stored evidence. Deterministic; **no AI call.**
 
@@ -952,7 +954,7 @@ A server-computed study plan over **stored evidence only**. Replaces client-side
 
 **Errors:** 400 `VALIDATION_ERROR` (bad `topic`), 500 `INTERNAL`.
 
-## `POST /api/share` — `Status: planned (Wave 4)`
+## `POST /api/share` — `Status: shipped (Wave 4)`
 
 Ingest a shared deep link (PowerPoint / document / website) into the library. Used by the Web Share API flow (`frontend/js/components/share.js`).
 
@@ -978,7 +980,7 @@ Ingest a shared deep link (PowerPoint / document / website) into the library. Us
 
 **Errors:** 400 `VALIDATION_ERROR`, 400 `INVALID_URL`, 400 `UNSUPPORTED_FILE`, 400 `EMPTY_CONTENT`, 413 `FILE_TOO_LARGE`, 502 `FETCH_FAILED`, 502 `NIM_ERROR`, 503 `CHROMA_UNAVAILABLE`.
 
-## `POST /api/viewer/:sourceId/document` — `Status: planned (Wave 4)`
+## `POST /api/viewer/:sourceId/document` — `Status: shipped (Wave 4)`
 
 Serve the **extracted** document for in-app viewing (`frontend/viewer.html` + `js/components/file-viewer.js`). Original binaries are not retained (see README "Storage architecture"), so the viewer renders the stored per-page/per-slide text, not the original bytes.
 
@@ -1007,7 +1009,7 @@ Serve the **extracted** document for in-app viewing (`frontend/viewer.html` + `j
 
 **Errors:** 404 `SOURCE_NOT_FOUND`, 500 `INTERNAL`.
 
-## `POST /api/media/youtube` — `Status: planned (Wave 4)`
+## `POST /api/media/youtube` — `Status: shipped (Wave 4)`
 
 YouTube URL → transcript → chunks → a searchable, citable source. The **server** (not the browser) fetches the transcript and embeds it.
 
@@ -1030,24 +1032,41 @@ YouTube URL → transcript → chunks → a searchable, citable source. The **se
 
 **Errors:** 400 `INVALID_URL`, 400 `VALIDATION_ERROR`, 422 `NO_TRANSCRIPT`, 502 `FETCH_FAILED`, 502 `NIM_ERROR`, 503 `CHROMA_UNAVAILABLE`.
 
-## `POST /api/media/ocr` — `Status: planned (Wave 4)`
+## `POST /api/media/ocr` — `Status: shipped (Wave 4)`
 
-Image → text (whiteboard photos, textbook pages, screenshots).
+Image → text (whiteboard photos, textbook pages, screenshots). Implemented in `server/routes/media.js` on A38's `mediaRouter`, reading `server/services/extract/image.js` + `server/services/media/ocr.js` (A39).
 
 **Auth:** required.
 
-**Request:** `multipart/form-data`, one file field `file`. Allowed image types: `.png`, `.jpg`, `.jpeg`, `.webp`. Max size `MAX_UPLOAD_MB` (default 25 MB). Optional form field `ingest=1` to also store the text as a source.
+**Request:** `multipart/form-data`, one file field `file`. Allowed image types: `.png`, `.jpg`, `.jpeg`, `.webp`. Max size `MAX_UPLOAD_MB` (default 25 MB) **or 40 megapixels** — whichever the image exceeds first (a small file can still decode to too many pixels to process safely). Optional form field `ingest=1` to also store the text as a source.
 
 **Response 200** (no `ingest`):
 ```json
-{ "text": "…recognised text…", "charCount": 1234, "language": "en", "confidence": 0.93 }
+{
+  "text": "…recognised text…",
+  "charCount": 1234,
+  "language": "en",
+  "confidence": 0.93,
+  "reliability": "good",
+  "note": null,
+  "lineCount": 6,
+  "unreliableLines": [4],
+  "durationMs": 343
+}
 ```
-**Response 201** (with `ingest=1`): `{ "text": "…", "charCount": 1234, "source": { /* source shape */ } }`.
-- `confidence` is optional (0–1) and may be omitted when the OCR engine does not report one.
+**Response 201** (with `ingest=1`): the same fields plus `"source": { /* source shape */ }`.
 
-**Errors:** 400 `VALIDATION_ERROR`, 400 `UNSUPPORTED_FILE`, 400 `EMPTY_CONTENT`, 413 `FILE_TOO_LARGE`, 422 `OCR_FAILED`, 502 `NIM_ERROR`.
+- `confidence` is 0–1 and may be `null` when the engine reported no score.
+- `reliability` is `good|fair|poor|unknown` — the human-facing summary of that score, so the UI never has to invent a threshold of its own.
+- `note` is a plain sentence warning the learner when the read may be unreliable, or `null` when it is confident. **The client must render it rather than a generic success message.**
+- `lineCount` is the number of lines read; `unreliableLines` lists the 1-based line numbers the engine scored below 0.6 (empty when the whole read is confident).
+- `durationMs` is how long the read took. There is deliberately **no percentage progress**: the engine reports progress inside a server worker thread and this route answers with a single body, so any progress bar would be invented.
 
-## `GET /api/events` — `Status: planned (Wave 4)`
+**Errors:** 400 `VALIDATION_ERROR`, 400 `UNSUPPORTED_FILE`, 400 `EMPTY_CONTENT`, 413 `FILE_TOO_LARGE` (over `MAX_UPLOAD_MB` **or** over 40 megapixels), 422 `OCR_FAILED` (the image could not be read into text), 422 `OCR_TIMEOUT` (the read exceeded `OCR_TIMEOUT_MS`, default 45 s, and was stopped part-way — the message reports how far the engine got), 503 `OCR_UNAVAILABLE` (the engine's language data is not installed and could not be fetched), 502 `NIM_ERROR`.
+
+`OCR_TIMEOUT` is deliberately distinct from a platform timeout: a killed function surfaces as an unhelpful generic 500, and this code avoids ever landing there.
+
+## `GET /api/events` — `Status: shipped (Wave 4)`
 
 The activity feed / study history, read from the `activity` table (the same rows `GET /api/learner/progress` summarises in `recentActivity`).
 
@@ -1087,3 +1106,4 @@ The activity feed / study history, read from the `activity` table (the same rows
 | v1.5 | 2026-10-13 | Study-planning tutor intents, auto practice decks, engine metadata (`checks.sqlite.backend`, `checks.limits`). |
 | v1.6 | 2026-10-13 | Real user accounts (Supabase Auth), per-user ownership, `supabase`/`prototype` modes, `401 UNAUTHENTICATED`, `/api/auth/login|refresh`, extension relevance/briefing. |
 | **v2.0** | **2026-10-14** | Title corrected to v2.0; "How to read this file", Authentication & ownership, Versioning & compatibility, and Extension contract sections added; Wave 4 endpoints specified as **planned** (adaptive levels 1–4, planner, advice, share, viewer, media YouTube/OCR, events); new error codes `FETCH_FAILED`, `NO_TRANSCRIPT`, `OCR_FAILED`; v1.0 non-goals updated to current truth. |
+| **v2.1** | **2026-10-15** | Wave 4 endpoints flipped **planned → shipped** after verifying all seven route files exist and are mounted; `POST /api/media/ocr` specified as built (adds `reliability`, `note`, `lineCount`, `unreliableLines`, `durationMs`, and the 40-megapixel size cause); new error codes `OCR_TIMEOUT` (422), `OCR_UNAVAILABLE` (503); image/DOCX citation location corrected from `{segment}` to `{paragraph}` (the key `chunker.js#makeChunk` actually preserves); planner `hasEvidence` wording widened to cover deck-only learners with due flashcards; corrected "a topic with no attempts reports level 1" — the code reports `level: null` / `"unassessed"` / `hasEvidence: false`, because unassessed is not weak. |

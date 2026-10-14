@@ -1,28 +1,34 @@
 /* Popup styles for the Socius AI Study Highlighter toolbar popup.
-   The design tokens below are copied verbatim from frontend/css/tokens.css
-   and the component patterns from frontend/css/components.css, so this
-   document stays self-contained: no @import, no CDN, no external fonts. */
+   ==========================================================================
+   NO BUILD STEP, NO BUNDLER, NO CDN. This sheet is deliberately self-contained:
+   a packed extension (.crx) is a zip of the extension folder alone, so it
+   cannot reach ../../frontend/css/tokens.css at runtime.
+
+   Every colour, space, radius, duration and font stack below is copied VERBATIM
+   from frontend/css/tokens.css, and the component blocks are the ones A01
+   defined in frontend/css/components.css. The source of truth stays
+   frontend/css/tokens.css — if a token changes there, change it here too.
+   Nothing new is invented; no colour is hand-picked.
+   ========================================================================== */
 
 :root {
-  /* ---- Color: app (academic) ---- */
+  /* ---- Design tokens: verbatim from frontend/css/tokens.css (:root) ---- */
   --ink: #101418;          /* headings, primary text */
   --ink-2: #39424E;        /* body text on white */
   --ink-3: #6B7480;        /* muted labels, meta */
+  --ink-4: #949BA6;        /* placeholder, disabled text */
   --paper: #FFFFFF;
   --canvas: #F4F6F8;       /* page background */
-  --canvas-2: #EAEDF1;     /* sunken wells, code-ish blocks */
+  --canvas-2: #EAEDF1;     /* sunken wells */
   --line: #DEE2E8;         /* hairline borders */
-  --line-strong: #C4CAD3;  /* input borders, dividers that mean something */
+  --line-strong: #C4CAD3;  /* input borders, meaningful dividers */
 
   --blue: #1D4ED8;         /* primary action */
   --blue-hover: #1740B4;
+  --blue-active: #14307F;
   --blue-ink: #14307F;     /* blue text on tinted backgrounds */
   --blue-soft: #E9EFFD;    /* tinted surface */
   --blue-line: #C3D2F7;
-
-  --pink: #C6306E;         /* accent, used sparingly */
-  --pink-soft: #FCEAF1;
-  --pink-line: #F4CBDC;
 
   --green: #12775A;
   --green-soft: #E4F4EE;
@@ -31,183 +37,129 @@
   --red: #B3261E;
   --red-soft: #FCEBEA;
 
-  /* ---- Type */
-  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
-  --font-pixel: "Silkscreen", "Courier New", ui-monospace, monospace;
+  /* Semantic aliases (components.css consumes these) */
+  --bg-page: var(--canvas);
+  --bg-surface: var(--paper);
+  --bg-sunken: var(--canvas-2);
+  --bg-hover: rgba(16, 20, 24, 0.04);
+  --bg-active: rgba(16, 20, 24, 0.07);
 
-  --fs-xs: 0.75rem;    /* 12 — meta, labels */
+  --fg-default: var(--ink-2);
+  --fg-strong: var(--ink);
+  --fg-muted: var(--ink-3);
+  --fg-subtle: var(--ink-4);
+  --fg-onAccent: #FFFFFF;
+
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+
+  --focus-ring: 0 0 0 3px rgba(29, 78, 216, 0.35);
+
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --fs-xs: 0.75rem;    /* 12 — meta, help */
   --fs-sm: 0.875rem;   /* 14 — secondary UI */
   --fs-base: 1rem;     /* 16 — body */
-  --fs-md: 1.125rem;   /* 18 — lead paragraphs */
-  --fs-lg: 1.375rem;   /* 22 — card titles */
-  --fs-xl: 1.75rem;    /* 28 — section headings */
-  --fs-2xl: clamp(1.875rem, 1.4rem + 1.8vw, 2.5rem); /* page titles */
+  --fs-lg: 1.375rem;   /* 22 — popup title */
 
-  --lh-tight: 1.2;
   --lh-snug: 1.35;
   --lh-body: 1.6;
 
-  /* ---- Space (4px scale) */
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
   --s1: 4px;
   --s2: 8px;
   --s3: 12px;
   --s4: 16px;
   --s5: 24px;
-  --s6: 32px;
-  --s7: 48px;
-  --s8: 64px;
 
-  /* ---- Shape & elevation (restrained: small radii, one soft shadow) */
   --r-sm: 3px;
   --r-md: 5px;
   --r-lg: 8px;
-  --shadow-1: 0 1px 2px rgba(16, 20, 24, 0.06);
-  --shadow-2: 0 6px 20px rgba(16, 20, 24, 0.09);
+  --r-full: 999px;
 
-  --measure: 68ch;      /* comfortable reading width */
-  --shell-max: 1180px;  /* app content max width */
-  --topbar-h: 60px;
+  --shadow-1: 0 1px 2px rgba(16, 20, 24, 0.06);
+
+  --dur-fast: 120ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* ---------- Popup shell ---------- */
+/* Higher-contrast mode for the app interior — tokens.css, same block. */
+@media (prefers-contrast: more) {
+  :root {
+    --line: #B6BDC7;
+    --line-strong: #8A929D;
+    --ink-3: #4A515B;
+    --fg-subtle: #5C636D;
+    --focus-ring: 0 0 0 3px rgba(29, 78, 216, 0.7);
+  }
+}
+
+/* Users who ask for less motion get none of ours. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; }
+}
+
+/* ------------------------------------------------------------- reset ---- */
 *,
 *::before,
 *::after { box-sizing: border-box; }
 
 [hidden] { display: none !important; }
 
+/* ------------------------------------------------------------- shell ---- */
+/* A popup's default is ~320px and Chrome will not let it grow past 800x600.
+   Everything below is fluid so the panel still reads correctly at the default
+   size, zoomed in, or when the popup is widened. */
+html { height: auto; }
+
 body {
   width: 320px;
+  max-width: 100vw;
   margin: 0;
-  padding: var(--s3);
-  background: var(--canvas);
+  background: var(--bg-page);
   font-family: var(--font-sans);
   font-size: var(--fs-sm);
   line-height: var(--lh-snug);
-  color: var(--ink-2);
+  color: var(--fg-default);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- Buttons (from components.css) ---------- */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s2);
-  min-height: 40px;
-  padding: 0 var(--s4);
-  border: 1px solid transparent;
-  border-radius: var(--r-md);
-  background: none;
-  font-family: inherit;
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btn-primary { background: var(--blue); color: #fff; }
-.btn-primary:hover:not(:disabled) { background: var(--blue-hover); color: #fff; }
-
-.btn-block { width: 100%; }
-
-/* ---------- Form fields (from components.css) ---------- */
-.field { display: flex; flex-direction: column; gap: var(--s2); }
-
-.field-label {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.field-error {
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--red);
-}
-
-.input {
-  width: 100%;
-  min-height: 40px;
-  padding: var(--s2) var(--s3);
-  background: var(--paper);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  font-family: inherit;
-  font-size: var(--fs-sm);
-  color: var(--ink);
-}
-.input::placeholder { color: #98A0AA; }
-.input:hover { border-color: #A9B1BC; }
-.input[aria-invalid="true"] { border-color: var(--red); }
-
-/* ---------- Surfaces (from components.css) ---------- */
-.panel {
-  background: var(--paper);
-  border: 1px solid var(--line);
+.popup-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
 }
 
-/* ---------- Badges, chips, status (from components.css) ---------- */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s1);
-  padding: 3px var(--s2);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
-  background: var(--canvas);
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-.badge-green { background: var(--green-soft); border-color: #BFE5D6; color: var(--green); }
-
-.status-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--green);
-  flex: none;
-}
-.status-dot.is-warn { background: var(--amber); }
-.status-dot.is-down { background: var(--red); }
-
-.spinner {
-  width: 15px; height: 15px;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 700ms linear infinite;
-  flex: none;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ---------- Popup layout ---------- */
 .popup-header {
   padding: var(--s4) var(--s4) var(--s3);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 
 .popup-title {
   margin: 0;
   font-size: var(--fs-lg);
-  font-weight: 600;
-  line-height: var(--lh-tight);
-  color: var(--ink);
+  font-weight: var(--fw-semibold);
+  line-height: 1.2;
+  letter-spacing: -0.011em;
+  color: var(--fg-strong);
 }
 
 .popup-subtitle {
   margin: var(--s1) 0 0;
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink-3);
+  color: var(--fg-muted);
 }
 
 .popup-body {
@@ -217,129 +169,301 @@ body {
   padding: var(--s4);
 }
 
-.toggle-row {
+/* One section = one job. A hairline keeps them apart without nesting cards,
+   which is what makes a 320px column feel cramped. */
+.section {
   display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding-block: var(--s3);
+  border-top: 1px solid var(--border);
+}
+.section:first-of-type { border-top: 0; padding-block-start: 0; }
+
+.section-title {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.stack-3 { display: flex; flex-direction: column; gap: var(--s3); }
+
+/* ------------------------------------------------------------ buttons ---- */
+/* components.css §3. One variant + optional size, no new names. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-height: 40px;
+  padding-inline: var(--s4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  color: var(--fg-strong);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.btn:hover { background: var(--bg-hover); }
+.btn:active { background: var(--bg-active); }
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.btn[aria-busy="true"] { cursor: progress; pointer-events: none; }
+
+.btn-primary {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--fg-onAccent);
+}
+.btn-primary:hover { background: var(--blue-hover); border-color: var(--blue-hover); }
+.btn-primary:active { background: var(--blue-active); border-color: var(--blue-active); }
+
+.btn-secondary {
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--fg-strong);
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--fg-default);
+}
+.btn-ghost:hover { background: var(--bg-hover); }
+
+.btn-sm { min-height: 32px; padding-inline: var(--s3); font-size: var(--fs-xs); }
+.btn-block { width: 100%; }
+
+/* Visible focus ring on EVERY control, keyboard only. A pointer click does
+   not leave a ring behind, so the mouse experience stays clean. */
+.btn:focus-visible,
+.switch input:focus-visible + .switch-track,
+.input:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------- forms ---- */
+/* components.css §4. */
+.field { display: flex; flex-direction: column; gap: var(--s2); }
+
+.label {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+
+.input {
+  width: 100%;
+  min-height: 40px;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  color: var(--fg-strong);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.input::placeholder { color: var(--fg-subtle); }
+.input:hover:not(:disabled) { border-color: var(--ink-4); }
+
+/* Text fields show focus as a border change + ring, as components.css says. */
+.input:focus-visible {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: var(--focus-ring);
+}
+
+.input[aria-invalid="true"] { border-color: var(--red); }
+.input[aria-invalid="true"]:focus-visible {
+  box-shadow: 0 0 0 3px rgba(179, 38, 30, 0.35);
+}
+
+.help {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--fg-muted);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--red);
+}
+
+.save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.save-feedback:empty { display: none; }
+
+/* ------------------------------------------------------------ setting ---- */
+/* Label + hint on the left, switch on the right. Wraps instead of clipping
+   when the popup is narrow. */
+.setting-row {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--s3);
 }
 
-/* Toggle switch */
+.setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;           /* lets the ellipsis rule below actually bite */
+  flex: 1 1 12rem;
+}
+
+/* Toggle switch: a real <input type="checkbox"> stays the control (keyboard,
+   screen reader, form semantics all native); the track is decoration only.
+   The input is sized over the whole switch and lifted above the decorative
+   track, so a mouse click always lands on the control — not on the artwork. */
 .switch {
   position: relative;
   display: inline-flex;
   align-items: center;
+  flex: none;
   cursor: pointer;
 }
 .switch input {
   position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   opacity: 0;
-  width: 0;
-  height: 0;
+  cursor: pointer;
 }
 .switch-track {
   position: relative;
+  display: block;
   width: 40px;
   height: 22px;
-  border-radius: 99px;
+  border-radius: var(--r-full);
   background: var(--line-strong);
-  transition: background-color 120ms ease;
+  pointer-events: none;   /* the input underneath owns the click */
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 .switch-thumb {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-full);
   background: var(--paper);
   box-shadow: var(--shadow-1);
-  transition: transform 120ms ease;
+  pointer-events: none;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 .switch input:checked + .switch-track { background: var(--blue); }
 .switch input:checked + .switch-track .switch-thumb { transform: translateX(18px); }
-.switch input:focus-visible + .switch-track {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px;
-}
 
-/* Settings form */
-#settings-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s3);
-}
+/* ---------------------------------------------------------- connection ---- */
+.status-block { display: flex; flex-direction: column; gap: var(--s1); }
 
-.save-row {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-}
-
-/* Connection status line */
 .status-line {
   display: flex;
   align-items: center;
   gap: var(--s2);
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+
+.status-detail {
+  margin: 0;
   font-size: var(--fs-xs);
-  color: var(--ink-3);
+  line-height: var(--lh-body);
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
 }
 
-/* Account (sign-in) section */
-.account {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s3);
-  padding: var(--s3);
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+/* Status colour is carried by the dot; the text itself stays high-contrast
+   ink so it never depends on the fill behind it. */
+.status-dot {
+  display: inline-block;
+  width: var(--s2);
+  height: var(--s2);
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--green);
 }
+.status-dot.is-warn { background: var(--amber); }
+.status-dot.is-down { background: var(--red); }
+.status-dot.is-idle { background: var(--fg-subtle); }
 
-.account-title {
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-3);
+.status-text.is-warn { color: var(--amber); }
+.status-text.is-down { color: var(--red); }
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid var(--blue);
+  border-top-color: transparent;
+  border-radius: var(--r-full);
+  animation: spin 700ms linear infinite;
 }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-#login-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s3);
-}
+/* ------------------------------------------------------------- account ---- */
+.account-state { display: flex; flex-direction: column; gap: var(--s3); }
 
-.account-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s2);
+.account-note {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
 }
 
 .account-email {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--ink);
+  margin: calc(-1 * var(--s2)) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;   /* a long address must wrap, never overflow */
 }
 
-.account-hint {
-  margin: 0;
-  font-size: var(--fs-xs);
-  color: var(--ink-3);
+.help code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 1px var(--s1);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--fg-strong);
 }
-
-.btn-secondary {
-  flex: none;
-  min-height: 32px;
-  padding: 0 var(--s3);
-  border-color: var(--line-strong);
-  background: var(--paper);
-  color: var(--ink-2);
-  font-size: var(--fs-xs);
-}
-.btn-secondary:hover:not(:disabled) { background: var(--canvas-2); color: var(--ink); }

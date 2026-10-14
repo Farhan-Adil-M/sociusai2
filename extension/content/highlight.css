@@ -1,7 +1,19 @@
 /* highlight.css — visual style for study highlights, injected into pages.
    Amber tint + underline matches the app's restrained "academic" palette
    (see frontend/css/tokens.css). Selectors are scoped and specific so host
-   pages have to work hard to override us; no !important needed so far. */
+   pages have to work hard to override us.
+
+   Two vocabularies live here and never mix:
+
+     .socius-hl      — a sentence the backend matched to the student's library
+                       (relevance flow; clicking it opens the briefing panel).
+     .soc-word       — text the student selected themselves (selection flow;
+                       hovering or focusing it reveals the "Ask Socius" button).
+
+   The hover button's card is NOT styled here: highlight.js renders it inside
+   its own shadow root, and page-level CSS cannot reach inside one. That is
+   deliberate — it is what keeps our styles out of the host page and the
+   host page's styles out of our button. */
 
 mark.socius-hl {
   background: rgba(253, 214, 102, 0.45);
@@ -25,6 +37,42 @@ mark.socius-hl:hover {
   border-radius: 3px;
 }
 
-[data-socius-id] {
+/* The relevance highlight is not a control, so it must not grow a focus ring.
+   Scoped to the two elements this rule was written for — an unscoped
+   [data-socius-id] would also strip outlines from any page element that
+   happened to carry that attribute. */
+mark[data-socius-id],
+.socius-hl-block[data-socius-id] {
   outline: none;
 }
+
+/* ---------------------------------------------------- selection highlights
+
+   `html` is there for specificity, not styling: content-script CSS is injected
+   before the page's own stylesheets, so a tie would go to the page. One extra
+   element selector keeps a host page's `mark` or `p mark` rule from silently
+   overriding the student's highlight. */
+
+html mark.soc-word {
+  background: rgba(253, 214, 102, 0.55);
+  color: inherit;
+  box-shadow: inset 0 -2px 0 #F0B429;
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: default;
+}
+
+html mark.soc-word:hover {
+  background: rgba(253, 214, 102, 0.85);
+}
+
+/* The highlight itself is a tab stop: Tab reaches it, the card appears, and Tab
+   once more reaches the real button inside that card. A visible focus ring is
+   what makes that reachable rather than invisible. */
+html mark.soc-word:focus-visible {
+  outline: 2px solid #1D4ED8;
+  outline-offset: 2px;
+}
+
+/* Text stays readable for screen readers: a <mark> keeps its text content, so
+   nothing here hides the passage from assistive technology. */
