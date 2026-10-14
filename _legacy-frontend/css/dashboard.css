@@ -1,0 +1,150 @@
+/* Dashboard — a student's workspace: one "next thing to do" at the top, then
+   progress, revision queue, materials and activity. No chart-junk. */
+
+.dash-continue {
+  background: var(--blue-soft);
+  border: 1px solid var(--blue-line);
+  border-left: 4px solid var(--blue);
+  border-radius: var(--r-lg);
+  padding: clamp(18px, 3vw, 26px);
+}
+.dash-continue.is-empty { background: var(--paper); border-color: var(--line); border-left-color: var(--line-strong); }
+
+.dash-continue-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s5);
+  flex-wrap: wrap;
+}
+
+.dash-kicker {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--blue-ink);
+  margin-bottom: var(--s1);
+}
+.dash-continue h2 { font-size: clamp(1.25rem, 2.4vw, 1.6rem); }
+.dash-continue p { margin-top: var(--s2); font-size: var(--fs-sm); color: var(--ink-2); max-width: 56ch; }
+
+.dash-continue-actions { display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+/* ---------- Jump links ---------- */
+.dash-jump {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  margin-top: var(--s5);
+}
+.dash-jump-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none;
+  color: var(--ink);
+  transition: color 120ms ease;
+}
+.dash-jump-item:hover { color: var(--blue-ink); background: none; box-shadow: none; }
+.dash-jump-item:hover .dash-jump-arrow { color: var(--blue); transform: translateX(2px); }
+.dash-jump-arrow { margin-left: auto; color: var(--ink-3); transition: color 120ms ease, transform 120ms ease; }
+.dash-jump-icon {
+  width: 34px; height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  color: var(--blue-ink);
+}
+.dash-jump-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dash-jump-title { font-size: var(--fs-sm); font-weight: 600; }
+.dash-jump-desc { font-size: var(--fs-xs); color: var(--ink-3); }
+.dash-jump-arrow { margin-left: auto; color: var(--ink-3); transition: transform 120ms ease, color 120ms ease; }
+
+/* ---------- Columns ---------- */
+.dash-columns {
+  display: grid;
+  gap: var(--s5);
+  margin-top: var(--s5);
+  align-items: start;
+}
+.dash-columns--wide-left { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+.dash-columns--even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* ---------- Stats ---------- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s3);
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0 2px var(--s3);
+  background: none;
+  border: none;
+  border-left: 2px solid var(--line);
+  border-radius: 0;
+}
+.stat-value {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.stat-label { font-size: var(--fs-xs); color: var(--ink-3); }
+
+.mastery-list { display: flex; flex-direction: column; gap: var(--s4); margin-top: var(--s5); }
+
+.topic-meter { display: flex; flex-direction: column; gap: var(--s2); }
+.topic-meta { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* ---------- Revision queue ---------- */
+.revision-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--line);
+}
+.revision-item:last-child { border-bottom: 0; }
+.revision-score {
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--pink);
+  min-width: 46px;
+  text-align: right;
+}
+.revision-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.revision-topic { font-size: var(--fs-sm); font-weight: 600; }
+.revision-meta { font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* ---------- Continue card empty state ---------- */
+.dash-empty-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+.dash-empty-inline .state-icon { flex: none; }
+.dash-empty-inline p { font-size: var(--fs-sm); color: var(--ink-2); max-width: 60ch; }
+
+@media (max-width: 960px) {
+  .dash-columns--wide-left,
+  .dash-columns--even { grid-template-columns: minmax(0, 1fr); }
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .dash-jump { grid-template-columns: minmax(0, 1fr); }
+  .dash-continue-inner { flex-direction: column; align-items: flex-start; }
+}

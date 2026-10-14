@@ -1,0 +1,31 @@
+{
+  "name": "socius-ai",
+  "version": "0.1.0",
+  "description": "Socius AI — AI study companion: grounded tutoring, quizzes, and adaptive learning.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "start": "node --env-file=.env server/index.js",
+    "dev": "node --watch --env-file=.env server/index.js",
+    "test": "node --test tests/",
+    "e2e": "node --env-file=.env scripts/e2e-smoke.mjs",
+    "reindex": "node --env-file=.env scripts/reindex.js",
+    "eval": "node --env-file=.env scripts/eval-retrieval.mjs",
+    "migrate": "node --env-file=.env scripts/migrate-db.mjs",
+    "migrate:supabase": "node --env-file=.env scripts/migrate-supabase.mjs"
+  },
+  "dependencies": {
+    "@chroma-core/default-embed": "^0.1.9",
+    "@libsql/client": "^0.18.0",
+    "@supabase/supabase-js": "^2.117.3",
+    "adm-zip": "0.6.1",
+    "chromadb": "3.5.0",
+    "express": "5.3.0",
+    "multer": "2.4.0",
+    "pdf-parse": "2.4.5",
+    "postgres": "^3.4.9"
+  }
+}

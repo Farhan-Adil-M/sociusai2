@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your learning profile — Socius AI</title>
+  <meta name="description" content="See and edit what Socius knows about you — interests, goals, subjects and how you like to be taught.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;600&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/profile.css">
+  <link rel="stylesheet" href="css/redesign.css">
+</head>
+<body class="shell">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar" data-shell="header"></header>
+
+  <main id="main" class="shell-main pf-stack">
+    <div class="page-head">
+      <p class="page-eyebrow">Profile</p>
+      <h1 class="page-title">Your learning profile</h1>
+      <p class="page-sub">This is what the tutor reads to decide how it explains things to you. Everything here is yours to edit or delete.</p>
+    </div>
+
+    <div data-health class="stack stack-3"></div>
+
+    <!-- Intro state: shown while the profile is "new" or was skipped -->
+    <div data-state-banner hidden></div>
+    <p class="sr-only" aria-live="polite" data-live></p>
+
+    <section class="panel" aria-labelledby="about-title">
+      <div class="panel-head"><h2 class="panel-title" id="about-title">About you</h2></div>
+      <div class="panel-body pf-body" data-about>
+        <div class="loading-row"><span class="spinner" aria-hidden="true"></span><span>Loading your profile…</span></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="style-title">
+      <div class="panel-head"><h2 class="panel-title" id="style-title">How to teach me</h2></div>
+      <div class="panel-body pf-body" data-style>
+        <div class="loading-row"><span class="spinner" aria-hidden="true"></span><span>Loading…</span></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="subjects-title">
+      <div class="panel-head"><h2 class="panel-title" id="subjects-title">Subjects &amp; familiarity</h2></div>
+      <div class="panel-body pf-body" data-subjects>
+        <div class="loading-row"><span class="spinner" aria-hidden="true"></span><span>Loading…</span></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="privacy-title">
+      <div class="panel-head"><h2 class="panel-title" id="privacy-title">Where this information lives</h2></div>
+      <div class="panel-body stack stack-2">
+        <p>Your answers — spoken during the intro or typed here — are stored in this app's database and used to personalise your learning: how the tutor explains things, which examples it picks and how hard your first quizzes start.</p>
+        <p>They are never shared. There is no sign-in and no separate accounts: this installation has one shared profile, like all your study data here. If the server is reset (for example a fresh deployment), the profile disappears with it — you can always rebuild it on this page, and you can delete it yourself at any time.</p>
+      </div>
+    </section>
+
+    <section class="panel pf-danger" aria-labelledby="danger-title">
+      <div class="panel-head"><h2 class="panel-title" id="danger-title">Danger zone</h2></div>
+      <div class="panel-body stack stack-3">
+        <div class="pf-danger-item">
+          <div class="pf-danger-text">
+            <strong>Restart the intro</strong>
+            <p class="field-hint">Removes the saved profile and starts the tutor's questions from the beginning. Quizzes and materials are untouched.</p>
+          </div>
+          <button type="button" class="btn btn-danger btn-sm" data-danger="restart"
+                  data-armed-label="Sure? The profile and its history are deleted — click again to start the intro.">Restart intro</button>
+        </div>
+        <hr class="hairline">
+        <div class="pf-danger-item">
+          <div class="pf-danger-text">
+            <strong>Delete saved profile</strong>
+            <p class="field-hint">Only your answers and the tutor's guesses are removed. Quizzes, flashcard decks and uploaded material are NOT deleted.</p>
+          </div>
+          <button type="button" class="btn btn-danger btn-sm" data-danger="delete"
+                  data-armed-label="Sure? Quizzes, decks and materials stay — click again to delete the profile only.">Delete saved profile</button>
+        </div>
+        <div class="banner banner-error" data-danger-status hidden></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell-footer" data-shell="footer"></footer>
+  <script type="module" src="js/pages/profile.js"></script>
+</body>
+</html>

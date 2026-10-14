@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "includeFiles": "{node_modules/pdf-parse/**,node_modules/pdfjs-dist/**,data/demo-seed.json}"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
+    { "source": "/((?!api/).*)", "destination": "/api/index.js" }
+  ]
+}

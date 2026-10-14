@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Socius AI — Study Highlighter",
+  "version": "0.2.0",
+  "description": "Highlights passages on the web that connect to your Socius AI study documents.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "socius-ai-study-highlighter@sociusai.local",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "https://socius-ai.vercel.app/*"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content/panel.js", "content/highlight.js"],
+      "css": ["content/highlight.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Socius AI"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

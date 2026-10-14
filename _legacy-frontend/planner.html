@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Study Planner — Socius AI</title>
+  <meta name="description" content="Your study planner: a session-by-session plan generated from the topics you are still working on.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/dashboard.css">
+  <link rel="stylesheet" href="css/redesign.css">
+</head>
+<body class="shell">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar" data-shell="header"></header>
+
+  <main id="main" class="shell-main">
+    <!-- Study Planner — a session-by-session plan built from your topics -->
+    <section class="app-view" id="viewPlanner" aria-label="Study Planner">
+      <header class="view-head">
+        <p class="view-eyebrow">STUDY PLANNER</p>
+        <h2>Your study planner</h2>
+        <p class="view-desc">A session-by-session plan generated from the topics you are still working on.</p>
+      </header>
+
+      <div class="planner-grid" id="plannerGrid"></div>
+
+      <div class="view-panel planner-note">
+        <p class="upload-panel-desc">The week is planned from your least-recently-studied
+          materials. Tick or untick sources above, or press “Plan again”, to rebuild it — and
+          see what you have mastered on the
+          <a class="inline-link" href="progress.html">Learning Progress</a> page.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell-footer" data-shell="footer"></footer>
+  <script type="module" src="js/pages/planner.js"></script>
+</body>
+</html>

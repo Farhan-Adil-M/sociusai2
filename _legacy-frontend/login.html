@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — Socius AI</title>
+  <meta name="description" content="Sign in to Socius AI, your personal study space.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/login.css">
+  <link rel="stylesheet" href="css/redesign.css">
+</head>
+<body class="auth-page">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- Doodle art sprite: the hand-drawn line-art symbols the sign-in visual
+       references with <use>. Decorative only, never announced. -->
+  <svg class="doodle-sprite" aria-hidden="true" focusable="false"
+       style="position:absolute; top:0; left:0; width:0; height:0; overflow:hidden;">
+    <symbol id="dd-star" viewBox="0 0 100 100">
+      <path d="M50 8 L62 37 L93 40 L70 62 L76 92 L50 77 L24 92 L30 62 L7 40 L38 37 Z" />
+    </symbol>
+    <symbol id="dd-sparkle" viewBox="0 0 100 100">
+      <path d="M50 6 C55 30 70 45 94 50 C70 55 55 70 50 94 C45 70 30 55 6 50 C30 45 45 30 50 6 Z" fill="currentColor"
+        stroke="none" />
+    </symbol>
+    <symbol id="dd-heart" viewBox="0 0 100 96">
+      <path d="M50 84 C14 60 8 38 20 28 C32 18 46 24 50 36 C54 24 68 18 80 28 C92 38 86 60 50 84 Z" />
+      <circle cx="39" cy="44" r="3.5" fill="currentColor" stroke="none" />
+      <circle cx="61" cy="44" r="3.5" fill="currentColor" stroke="none" />
+      <path d="M37 55 Q50 67 63 55" />
+    </symbol>
+    <symbol id="dd-bolt" viewBox="0 0 80 110">
+      <path d="M50 6 L20 58 H42 L32 104 L62 50 H40 Z" />
+    </symbol>
+    <symbol id="dd-temple" viewBox="0 0 120 100">
+      <path d="M60 6 L6 34 L114 34 Z" />
+      <path d="M10 40 H110" />
+      <path
+        d="M14 40 h12 M20 40 V80 M14 80 h12 M34 40 h12 M40 40 V80 M34 80 h12 M54 40 h12 M60 40 V80 M54 80 h12 M74 40 h12 M80 40 V80 M74 80 h12 M94 40 h12 M100 40 V80 M94 80 h12" />
+      <path d="M6 80 H114 M4 88 H116 M2 96 H118" />
+    </symbol>
+  </svg>
+
+  <main id="main" class="auth-main">
+    <section class="login-page" id="loginPage" aria-label="Sign in to Socius AI">
+
+      <!-- Left panel: brand, promise and decorative art (all decoration is
+           aria-hidden; the only interactive element is the brand link home). -->
+      <section class="login-visual" aria-label="Socius AI introduction">
+        <a class="login-brand" href="index.html" aria-label="Socius AI home">
+          <span class="login-brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2.5 2 7.8l10 5.1 8-4.1v5.7h2V7.8L12 2.5Zm-7 8.2v6.1l7 3.6 7-3.6v-6.1l-7 3.6-7-3.6Z" />
+            </svg>
+          </span>
+          <span>Socius AI</span>
+        </a>
+        <div class="visual-copy">
+          <p class="visual-eyebrow">YOUR PERSONAL STUDY SPACE</p>
+          <h1>Learn<br>brighter.</h1>
+          <p>Make every study session count with a learning space built around you.</p>
+        </div>
+        <div class="visual-art" aria-hidden="true">
+          <div class="art-orbit orbit-one"></div>
+          <div class="art-orbit orbit-two"></div>
+          <div class="art-spark spark-one">✦</div>
+          <div class="art-spark spark-two">✧</div>
+          <div class="art-book">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="art-plant">
+            <i></i><i></i><i></i><b></b>
+          </div>
+        </div>
+        <svg class="vintage-art login-watermark" aria-hidden="true">
+          <use href="#dd-temple" />
+        </svg>
+        <svg class="doodle lv-doodle lv-star" aria-hidden="true">
+          <use href="#dd-star" />
+        </svg>
+        <svg class="doodle lv-doodle lv-bolt" aria-hidden="true">
+          <use href="#dd-bolt" />
+        </svg>
+        <svg class="doodle lv-doodle lv-heart" aria-hidden="true">
+          <use href="#dd-heart" />
+        </svg>
+        <svg class="doodle lv-doodle lv-sparkle" aria-hidden="true">
+          <use href="#dd-sparkle" />
+        </svg>
+        <p class="visual-caption">A little progress every day adds up.</p>
+      </section>
+
+      <!-- Right panel: the sign-in form. IDs are the cross-team contract
+           (#loginForm, #studentName, #studentEmail, #studentPassword,
+           #loginFormError) — the login page script wires them by name. -->
+      <section class="login-card" aria-labelledby="loginTitle">
+        <div class="login-intro">
+          <p class="login-eyebrow">WELCOME BACK</p>
+          <h1 id="loginTitle">Sign in</h1>
+          <p data-auth-sub>Enter your details to continue to your learning dashboard.</p>
+        </div>
+
+        <div class="banner banner-warn" role="note" data-proto-banner>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5L2.5 20h19z"/><path d="M12 9.5V14"/><path d="M12 17.2h.01"/></svg>
+          <span><strong>Prototype sign-in.</strong> Socius AI has no authentication backend — nothing is verified, sent anywhere, or stored on a server. Your details stay in this browser so the dashboard can greet you.</span>
+        </div>
+
+        <div class="banner banner-error" role="alert" data-auth-notice hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 7.5V13"/><path d="M12 16.4h.01"/></svg>
+          <span data-notice-text></span>
+        </div>
+
+        <div class="banner banner-info" role="status" data-auth-info hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 10.8v5"/><path d="M12 7.6h.01"/></svg>
+          <span data-info-text></span>
+        </div>
+
+        <form class="login-form" id="loginForm" autocomplete="on">
+          <label for="studentName">Name</label>
+          <input id="studentName" name="name" type="text" placeholder="Your name"
+                 autocomplete="name" required>
+
+          <label for="studentEmail">Email address</label>
+          <input id="studentEmail" name="email" type="email" inputmode="email"
+                 placeholder="you@university.edu" autocomplete="username" required>
+
+          <label for="studentPassword">Password</label>
+          <input id="studentPassword" name="password" type="password"
+                 placeholder="Your password" autocomplete="current-password" required>
+
+          <!-- Inline validation error: surfaced when the form is invalid
+               (native constraint failure or script check), cleared on input. -->
+          <p class="validation-message" id="loginFormError" role="alert" hidden>
+            Please enter your name, a valid email address and your password.
+          </p>
+
+          <button class="login-submit" type="submit" data-submit>Sign in</button>
+
+          <p class="login-note" data-proto-foot>Prototype sign-in only — nothing is verified or stored on a server.
+            <a href="index.html">Back to the home page</a>.</p>
+        </form>
+
+        <!-- Shown only in Supabase mode by the login script; both start hidden. -->
+        <a class="btn btn-secondary btn-block" data-register hidden href="login.html">Create an account</a>
+        <p data-signup-foot hidden>New to Socius AI? <a href="login.html" data-signup-toggle>Create an account</a>.</p>
+      </section>
+    </section>
+  </main>
+
+  <script type="module" src="js/pages/login.js"></script>
+</body>
+</html>

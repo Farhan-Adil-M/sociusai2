@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Socius AI Study Highlighter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="panel popup-panel">
+    <header class="popup-header">
+      <h1 class="popup-title">Socius AI</h1>
+      <p class="popup-subtitle">Study Highlighter</p>
+    </header>
+
+    <div class="popup-body">
+      <div class="toggle-row">
+        <span class="field-label" id="enabled-label">Highlight relevant text</span>
+        <label class="switch">
+          <input type="checkbox" id="enabled-toggle" aria-labelledby="enabled-label">
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </label>
+      </div>
+
+      <section class="account" id="account-section" hidden aria-label="Account">
+        <span class="account-title">Account</span>
+
+        <form id="login-form" novalidate>
+          <div class="field">
+            <label class="field-label" for="login-email">Email</label>
+            <input class="input" type="email" id="login-email" placeholder="you@example.com"
+                   spellcheck="false" autocomplete="username">
+          </div>
+          <div class="field">
+            <label class="field-label" for="login-password">Password</label>
+            <input class="input" type="password" id="login-password" autocomplete="current-password">
+          </div>
+          <div class="save-row">
+            <button type="submit" class="btn btn-primary" id="login-btn">Sign in</button>
+            <span class="field-error" id="login-error" hidden></span>
+          </div>
+          <p class="account-hint">Sign in to highlight pages and ask briefings.</p>
+        </form>
+
+        <div class="account-row" id="account-signed-in" hidden>
+          <span class="account-email" id="account-email"></span>
+          <button type="button" class="btn btn-secondary" id="logout-btn">Sign out</button>
+        </div>
+      </section>
+
+      <form id="settings-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="site-url">Socius AI site URL</label>
+          <input class="input" type="text" id="site-url" name="siteUrl"
+                 placeholder="https://socius-ai.vercel.app" spellcheck="false" autocomplete="off">
+          <p class="field-error" id="site-url-error" hidden>Must start with http:// or https://</p>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="api-url">API URL</label>
+          <input class="input" type="text" id="api-url" name="apiUrl"
+                 placeholder="https://socius-ai.vercel.app" spellcheck="false" autocomplete="off">
+          <p class="field-error" id="api-url-error" hidden>Must start with http:// or https://</p>
+        </div>
+
+        <div class="save-row">
+          <button type="submit" class="btn btn-primary" id="save-btn">Save</button>
+          <span class="badge badge-green" id="saved-badge" hidden>Saved</span>
+          <span class="field-error" id="save-error" hidden>Could not save settings.</span>
+        </div>
+      </form>
+
+      <div class="status-line" id="status-line" role="status" aria-live="polite">
+        <span class="spinner" id="status-spinner"></span>
+        <span class="status-dot" id="status-dot" hidden></span>
+        <span class="status-text" id="status-text">Checking connection&hellip;</span>
+      </div>
+
+      <button type="button" class="btn btn-primary btn-block" id="open-app-btn">Open Socius AI</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

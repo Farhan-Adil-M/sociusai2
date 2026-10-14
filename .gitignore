@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Secrets and local config
+.env*
+!.env.example
+
+# Runtime data (keep the committed demo seed — the Vercel build needs it)
+data/*
+!data/demo-seed.json
+
+# Python venv for local ChromaDB server (fallback only)
+.venv/
+__pycache__/
+
+# Agent local state
+.freebuff/
+
+# Logs and OS noise
+*.log
+.DS_Store
+.vercel/
+
+# E2E test credentials (never commit)
+.env.e2e
+/tmp-token-cache/

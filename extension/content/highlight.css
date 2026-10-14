@@ -1,0 +1,30 @@
+/* highlight.css — visual style for study highlights, injected into pages.
+   Amber tint + underline matches the app's restrained "academic" palette
+   (see frontend/css/tokens.css). Selectors are scoped and specific so host
+   pages have to work hard to override us; no !important needed so far. */
+
+mark.socius-hl {
+  background: rgba(253, 214, 102, 0.45);
+  color: inherit;
+  border-bottom: 2px solid #F0B429;
+  cursor: pointer;
+  padding: 0 1px;
+  border-radius: 2px;
+  transition: background-color 120ms ease;
+}
+
+mark.socius-hl:hover {
+  background: rgba(253, 214, 102, 0.8);
+}
+
+/* Fallback when the sentence spans multiple text nodes: tint the element. */
+.socius-hl-block {
+  background: rgba(253, 214, 102, 0.28);
+  box-shadow: inset 0 -2px 0 #F0B429;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+[data-socius-id] {
+  outline: none;
+}

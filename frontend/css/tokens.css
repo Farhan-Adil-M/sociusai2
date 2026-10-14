@@ -1,0 +1,186 @@
+/* =============================================================================
+   Socius2 — Design tokens
+   The ONE source of truth for color, type, space, shape, motion, and layering.
+   Loaded first by every page, before base.css and components.css.
+
+   Two palettes, deliberately:
+     --app-*    the academic app interior (cool neutrals, one blue, one pink)
+     --pixel-*  the landing page's pixel-art identity (pink / blue / white)
+   Never mix them. The landing page is the only consumer of --pixel-*.
+
+   Owner: A01. Changes here affect every page — see docs/OWNERSHIP.md.
+   ========================================================================== */
+
+:root {
+  /* ---------------------------------------------------------------- app -- */
+
+  /* Ink & paper */
+  --ink:        #101418;   /* headings, primary text */
+  --ink-2:      #39424E;   /* body text on white */
+  --ink-3:      #6B7480;   /* muted labels, meta */
+  --ink-4:      #949BA6;   /* placeholder, disabled text */
+  --paper:      #FFFFFF;
+  --canvas:     #F4F6F8;   /* page background */
+  --canvas-2:   #EAEDF1;   /* sunken wells, code blocks */
+  --line:       #DEE2E8;   /* hairline borders */
+  --line-strong:#C4CAD3;   /* input borders, meaningful dividers */
+
+  /* Primary action */
+  --blue:       #1D4ED8;
+  --blue-hover: #1740B4;
+  --blue-active:#14307F;
+  --blue-ink:   #14307F;   /* blue text on tinted backgrounds */
+  --blue-soft:  #E9EFFD;
+  --blue-line:  #C3D2F7;
+
+  /* Accent — used sparingly */
+  --pink:       #C6306E;
+  --pink-hover: #A8275C;
+  --pink-soft:  #FCEAF1;
+  --pink-line:  #F4CBDC;
+
+  /* Status */
+  --green:      #12775A;
+  --green-soft: #E4F4EE;
+  --amber:      #8A5A00;
+  --amber-soft: #FDF1DC;
+  --red:        #B3261E;
+  --red-soft:   #FCEBEA;
+  --violet:     #6B3FBF;
+  --violet-soft:#F1ECFC;
+
+  /* ------------------------------------------------------------- semantic */
+  /* Components consume THESE, never the raw swatches above.
+     Lets a future retheme happen in one place. */
+  --bg-page:      var(--canvas);
+  --bg-surface:   var(--paper);
+  --bg-sunken:    var(--canvas-2);
+  --bg-hover:     rgba(16, 20, 24, 0.04);
+  --bg-active:    rgba(16, 20, 24, 0.07);
+
+  --fg-default:   var(--ink-2);
+  --fg-strong:    var(--ink);
+  --fg-muted:     var(--ink-3);
+  --fg-subtle:    var(--ink-4);
+  --fg-onAccent:  #FFFFFF;
+
+  --border:       var(--line);
+  --border-strong:var(--line-strong);
+
+  --focus-ring:   0 0 0 3px rgba(29, 78, 216, 0.35);
+
+  /* -------------------------------------------------------------- type --- */
+  --font-sans:  "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+                Roboto, Helvetica, Arial, sans-serif;
+  --font-serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  --font-pixel: "Silkscreen", "Courier New", ui-monospace, monospace;
+  --font-mono:  "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --fs-xs:  0.75rem;    /* 12 — meta, labels */
+  --fs-sm:  0.875rem;   /* 14 — secondary UI */
+  --fs-base:1rem;       /* 16 — body */
+  --fs-md:  1.125rem;   /* 18 — lead paragraphs */
+  --fs-lg:  1.375rem;   /* 22 — card titles */
+  --fs-xl:  1.75rem;    /* 28 — section headings */
+  --fs-2xl: clamp(1.875rem, 1.4rem + 1.8vw, 2.5rem);   /* page titles */
+  --fs-3xl: clamp(2.25rem, 1.6rem + 2.6vw, 3.25rem);   /* hero only */
+
+  --lh-tight:1.2;
+  --lh-snug: 1.35;
+  --lh-body: 1.6;
+
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-semibold:600;
+  --fw-bold:    700;
+
+  --tracking-tight: -0.011em;
+  --tracking-wide:   0.04em;
+
+  /* -------------------------------------------------------------- space -- */
+  /* 4px scale */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+  --s9: 96px;
+
+  /* -------------------------------------------------------------- shape -- */
+  --r-sm: 3px;
+  --r-md: 5px;
+  --r-lg: 8px;
+  --r-xl: 14px;
+  --r-full: 999px;
+
+  --shadow-1: 0 1px 2px rgba(16, 20, 24, 0.06);
+  --shadow-2: 0 6px 20px rgba(16, 20, 24, 0.09);
+  --shadow-3: 0 16px 40px rgba(16, 20, 24, 0.14);
+
+  /* -------------------------------------------------------------- layout - */
+  --measure:   68ch;     /* comfortable reading width */
+  --shell-max: 1180px;   /* app content max width */
+  --topbar-h:  60px;
+  --sidebar-w: 244px;
+  --gutter:    clamp(16px, 4vw, 32px);
+
+  /* -------------------------------------------------------------- motion - */
+  /* Respect these; never hardcode a duration. */
+  --dur-fast:  120ms;
+  --dur-base:  200ms;
+  --dur-slow:  320ms;
+  --ease-out:  cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out:cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* -------------------------------------------------------------- layer -- */
+  --z-base:    1;
+  --z-sticky:  100;
+  --z-dropdown:300;
+  --z-overlay: 500;
+  --z-modal:   600;
+  --z-toast:   700;
+  --z-ext:     900;      /* extension-injected UI must sit above app chrome */
+
+  /* ===================================================== pixel palette ====
+     Landing page ONLY. High-contrast, arcade-poster energy: hot pink,
+     electric blue, white. Applied by scoping a .pixel class. */
+  --pixel-white:  #FFFFFF;
+  --pixel-cream:  #F5F7FF;
+  --pixel-pink:   #FF3E9A;
+  --pixel-pink-dk:#D91B72;
+  --pixel-pink-bg:#FFE6F2;
+  --pixel-blue:   #2544E8;
+  --pixel-blue-dk:#12249C;
+  --pixel-blue-bg:#E3EAFF;
+  --pixel-blue-2: #D8E0FF;
+  --pixel-ink:    #0E1024;
+  --pixel-slate:  #3E4463;
+  --pixel-mute:   #5F6686;
+  --pixel-border: 3px;
+  --pixel-shadow: 6px 6px 0 var(--pixel-ink);
+  --pixel-shadow-sm: 3px 3px 0 var(--pixel-ink);
+}
+
+/* Higher-contrast mode for the app interior. No pixel override — the landing
+   page is a poster and must stay as designed. */
+@media (prefers-contrast: more) {
+  :root {
+    --line: #B6BDC7;
+    --line-strong: #8A929D;
+    --ink-3: #4A515B;
+    --fg-subtle: #5C636D;
+    --focus-ring: 0 0 0 3px rgba(29, 78, 216, 0.7);
+  }
+}
+
+/* Users who ask for less motion get none of ours. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+  }
+}

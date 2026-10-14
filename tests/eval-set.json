@@ -1,0 +1,14 @@
+{
+  "description": "Fixed retrieval evaluation set. Grounded cases must be answered with a citation from the expected title+page; unsupported cases must be honestly abstained. The upload document is built by scripts/eval-retrieval.mjs (three pages, one fact per page).",
+  "cases": [
+    { "id": "q1", "question": "Where do the light-dependent reactions of photosynthesis take place?", "expectTitle": "smoke-eval-biology.pdf", "location": { "page": 2 } },
+    { "id": "q2", "question": "Which organelle converts light energy into glucose?", "expectTitle": "smoke-eval-biology.pdf", "location": { "page": 1 } },
+    { "id": "q3", "question": "What does cellular respiration consume to produce ATP?", "expectTitle": "smoke-eval-biology.pdf", "location": { "page": 3 } },
+    { "id": "q4", "question": "Which molecules are produced by the light-dependent reactions?", "expectTitle": "smoke-eval-biology.pdf", "location": { "page": 2 } },
+    { "id": "q5", "question": "What process consumes oxygen and produces ATP?", "expectTitle": "smoke-eval-biology.pdf", "location": { "page": 3 } },
+    { "id": "u1", "question": "What is the capital of France?", "unsupported": true },
+    { "id": "u2", "question": "How do black holes form?", "unsupported": true }
+  ],
+  "groundedTotal": 5,
+  "unsupportedTotal": 2
+}

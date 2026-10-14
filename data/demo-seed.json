@@ -1,0 +1,22 @@
+{
+  "source": {
+    "type": "pdf",
+    "title": "Socius AI demo corpus (biology basics)",
+    "url": null,
+    "license": null
+  },
+  "pages": [
+    {
+      "page": 1,
+      "text": "Photosynthesis converts light energy into glucose. This process happens inside the chloroplasts of plant cells, using water and carbon dioxide."
+    },
+    {
+      "page": 2,
+      "text": "The light-dependent reactions occur in the thylakoid membranes of the chloroplast. They produce ATP and NADPH, which the Calvin cycle later uses to build sugars."
+    },
+    {
+      "page": 3,
+      "text": "Cellular respiration happens in the mitochondria. It consumes oxygen and glucose to produce ATP, releasing carbon dioxide and water."
+    }
+  ]
+}
