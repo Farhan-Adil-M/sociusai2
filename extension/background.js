@@ -40,11 +40,11 @@
 
 const DEFAULT_SETTINGS = {
   enabled: true,
-  apiUrl: 'https://socius-ai.vercel.app',
+  apiUrl: 'https://sociusai2.vercel.app',
   // The site URL targets the app (dashboard), not the marketing landing page:
   // app pages load auth.js, which adopts the #socius_session handoff fragment
   // and lands the visitor signed in. The landing page has no auth code.
-  siteUrl: 'https://socius-ai.vercel.app/dashboard.html',
+  siteUrl: 'https://sociusai2.vercel.app/dashboard.html',
 };
 
 const TIMEOUT_MS = 15000;
@@ -171,54 +171,47 @@ function base64Encode(text) {
 
 /* ------------------------------------------------------------------ storage */
 
-function storageGet(area, key) {
-  if (!hasChrome() || !chrome.storage || !chrome.storage[area]) return Promise.resolve(undefined);
+// How each chrome.storage method is named in a log line, so the diagnostics
+// read the same as they always have.
+const STORAGE_VERBS = { get: 'read', set: 'write', remove: 'clear' };
+
+/* The ONE callback-to-promise wrapper for every storage call. The API's
+   lastError is logged and never thrown (a request must not crash because the
+   browser refused a write), and a missing chrome.* resolves instead of
+   rejecting — the worker can be asked for a session with no storage at all.
+   `map` turns the outcome into the value the caller wants; `ok` is false when
+   the call never completed (no storage area, a lastError, or a throw). */
+function storageCall(area, method, args, map) {
+  if (!hasChrome() || !chrome.storage || !chrome.storage[area]) {
+    return Promise.resolve(map(false, undefined));
+  }
   return new Promise((resolve) => {
     try {
-      chrome.storage[area].get(key, (items) => {
+      chrome.storage[area][method](...args, (result) => {
         if (chrome.runtime.lastError) {
-          log(`could not read ${area} storage: ${chrome.runtime.lastError.message}`);
-          resolve(undefined);
+          log(`could not ${STORAGE_VERBS[method]} ${area} storage: ${chrome.runtime.lastError.message}`);
+          resolve(map(false, undefined));
           return;
         }
-        resolve(items ? items[key] : undefined);
+        resolve(map(true, result));
       });
     } catch (error) {
-      log(`could not read ${area} storage: ${error && error.message}`);
-      resolve(undefined);
+      log(`could not ${STORAGE_VERBS[method]} ${area} storage: ${error && error.message}`);
+      resolve(map(false, undefined));
     }
   });
+}
+
+function storageGet(area, key) {
+  return storageCall(area, 'get', [key], (ok, items) => (ok && items ? items[key] : undefined));
 }
 
 function storageSet(area, items) {
-  if (!hasChrome() || !chrome.storage || !chrome.storage[area]) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    try {
-      chrome.storage[area].set(items, () => {
-        if (chrome.runtime.lastError) {
-          log(`could not write ${area} storage: ${chrome.runtime.lastError.message}`);
-          resolve(false);
-          return;
-        }
-        resolve(true);
-      });
-    } catch (error) {
-      log(`could not write ${area} storage: ${error && error.message}`);
-      resolve(false);
-    }
-  });
+  return storageCall(area, 'set', [items], (ok) => ok);
 }
 
 function storageRemove(area, key) {
-  if (!hasChrome() || !chrome.storage || !chrome.storage[area]) return Promise.resolve();
-  return new Promise((resolve) => {
-    try {
-      chrome.storage[area].remove(key, () => resolve());
-    } catch (error) {
-      log(`could not clear ${area} storage: ${error && error.message}`);
-      resolve();
-    }
-  });
+  return storageCall(area, 'remove', [key], () => undefined);
 }
 
 /**
@@ -227,22 +220,7 @@ function storageRemove(area, key) {
  * whole object is the answer (reading it back key-by-key would lose that).
  */
 function storageGetWithDefaults(area, defaults) {
-  if (!hasChrome() || !chrome.storage || !chrome.storage[area]) return Promise.resolve({});
-  return new Promise((resolve) => {
-    try {
-      chrome.storage[area].get(defaults, (items) => {
-        if (chrome.runtime.lastError) {
-          log(`could not read ${area} storage: ${chrome.runtime.lastError.message}`);
-          resolve({});
-          return;
-        }
-        resolve(isPlainObject(items) ? items : {});
-      });
-    } catch (error) {
-      log(`could not read ${area} storage: ${error && error.message}`);
-      resolve({});
-    }
-  });
+  return storageCall(area, 'get', [defaults], (ok, items) => (ok && isPlainObject(items) ? items : {}));
 }
 
 /**
@@ -785,11 +763,6 @@ function isExtensionPage(sender) {
   return typeof sender.url === 'string' && sender.url.startsWith(origin + '/');
 }
 
-/** Messages that must come from our own UI, never from a page. */
-function requiresExtensionPage(type) {
-  return type === 'login';
-}
-
 /* ------------------------------------------------------------------- router */
 
 async function handleMessage(message, sender) {
@@ -798,7 +771,8 @@ async function handleMessage(message, sender) {
     return badMessage('That message was refused.');
   }
   if (!isPlainObject(message) || typeof message.type !== 'string') return badMessage();
-  if (requiresExtensionPage(message.type) && !isExtensionPage(sender)) {
+  // Credentials may only arrive from our own UI, never from a page.
+  if (message.type === 'login' && !isExtensionPage(sender)) {
     log(`refused a ${message.type} message from outside the extension UI`);
     return badMessage('That message was refused.');
   }

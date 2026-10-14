@@ -20,8 +20,8 @@
 
 const DEFAULTS = Object.freeze({
   enabled: true,
-  siteUrl: 'https://socius-ai.vercel.app/dashboard.html',
-  apiUrl: 'https://socius-ai.vercel.app',
+  siteUrl: 'https://sociusai2.vercel.app/dashboard.html',
+  apiUrl: 'https://sociusai2.vercel.app',
 });
 
 /** How long the health probe may take before we call it unreachable. */
@@ -29,9 +29,6 @@ const HEALTH_TIMEOUT_MS = 5000;
 
 /** How long we wait for the background worker before calling it silent. */
 const WORKER_TIMEOUT_MS = 6000;
-
-/** chrome.storage.area names, so the numbers are not spread as literals. */
-const STORAGE_AREAS = { sync: 'sync', local: 'local' };
 
 /** Human labels for the server's own check names (server/routes/health.js). */
 const CHECK_LABELS = {
@@ -164,7 +161,6 @@ function cacheElements() {
   els.statusDetail = document.getElementById('status-detail');
   els.statusRetry = document.getElementById('status-retry');
 
-  els.accountSection = document.getElementById('account-section');
   els.accountSignedOut = document.getElementById('account-signed-out');
   els.accountSignedIn = document.getElementById('account-signed-in');
   els.accountNote = document.getElementById('account-note');
@@ -196,6 +192,15 @@ function cacheElements() {
 
 /* --------------------------------------------------- 1 · connection state -- */
 
+// Per-state appearance for the status line. `tone` classes are added to the
+// dot and the text; 'checking' is handled separately (spinner, no tone).
+const STATUS_STATES = {
+  ok: { text: 'Connected' },
+  degraded: { text: 'Reachable, but degraded', tone: 'is-warn' },
+  unreachable: { text: 'Unreachable', tone: 'is-down' },
+  error: { text: 'Error', tone: 'is-down' },
+};
+
 /**
  * Paint the probe outcome. `state` is one of
  *   checking | ok | degraded | unreachable | error
@@ -217,26 +222,12 @@ function renderStatus(state, detail) {
     return;
   }
 
-  if (state === 'ok') {
-    els.statusText.textContent = 'Connected';
-    els.statusDetail.hidden = false;
-    els.statusDetail.textContent = detail;
-    return;
+  const appearance = STATUS_STATES[state];
+  els.statusText.textContent = appearance.text;
+  if (appearance.tone) {
+    els.statusDot.classList.add(appearance.tone);
+    els.statusText.classList.add(appearance.tone);
   }
-
-  if (state === 'degraded') {
-    els.statusDot.classList.add('is-warn');
-    els.statusText.classList.add('is-warn');
-    els.statusText.textContent = 'Reachable, but degraded';
-    els.statusDetail.hidden = false;
-    els.statusDetail.textContent = detail;
-    return;
-  }
-
-  // unreachable | error — both mean "the app cannot be used right now".
-  els.statusDot.classList.add('is-down');
-  els.statusText.classList.add('is-down');
-  els.statusText.textContent = state === 'unreachable' ? 'Unreachable' : 'Error';
   els.statusDetail.hidden = false;
   els.statusDetail.textContent = detail;
 }
@@ -257,6 +248,25 @@ function describeChecks(checks) {
 /** The one thing the server caches for 10 minutes, stated out loud. */
 const CACHE_NOTE = 'The server reuses its own last probe for up to 10 minutes, '
   + 'so a recovery can appear late here.';
+
+/** Turn the health report into a status verdict: state, detail sentence, and
+ *  whether that server has accounts. A reply that is not a health report at
+ *  all is an error, never a guess. */
+function evaluateHealth(report) {
+  if (!report || typeof report !== 'object' || !report.checks || typeof report.checks !== 'object') {
+    return { state: 'error', authMode: null, detail: 'The server answered, but the reply was not a health report (no "checks" object).' };
+  }
+
+  const authMode = report.checks.auth && report.checks.auth.mode === 'supabase' ? 'supabase' : 'prototype';
+  const { failed, passed } = describeChecks(report.checks);
+  const suffix = ` ${CACHE_NOTE}`;
+
+  if (report.status === 'ok' && failed.length === 0) {
+    return { state: 'ok', authMode, detail: `Every check reported OK (${passed.join(', ') || 'none reported'}).${suffix}` };
+  }
+
+  return { state: 'degraded', authMode, detail: `The server is answering but reports: ${failed.join('; ')}.${suffix}` };
+}
 
 async function checkConnection(apiUrl) {
   renderStatus('checking');
@@ -291,23 +301,10 @@ async function checkConnection(apiUrl) {
       return { state: 'error', authMode: null };
     }
 
-    const body = await response.json().catch(() => null);
-    if (!body || typeof body !== 'object' || !body.checks || typeof body.checks !== 'object') {
-      renderStatus('error', 'The server answered, but the reply was not a health report (no "checks" object).');
-      return { state: 'error', authMode: null };
-    }
-
-    const authMode = body.checks.auth && body.checks.auth.mode === 'supabase' ? 'supabase' : 'prototype';
-    const { failed, passed } = describeChecks(body.checks);
-    const suffix = ` ${CACHE_NOTE}`;
-
-    if (body.status === 'ok' && failed.length === 0) {
-      renderStatus('ok', `Every check reported OK (${passed.join(', ') || 'none reported'}).${suffix}`);
-      return { state: 'ok', authMode };
-    }
-
-    renderStatus('degraded', `The server is answering but reports: ${failed.join('; ')}.${suffix}`);
-    return { state: 'degraded', authMode };
+    const report = await response.json().catch(() => null);
+    const verdict = evaluateHealth(report);
+    renderStatus(verdict.state, verdict.detail);
+    return { state: verdict.state, authMode: verdict.authMode };
   } catch (error) {
     if (timedOut) {
       renderStatus('unreachable', `No answer from ${healthUrl} within ${HEALTH_TIMEOUT_MS / 1000} seconds, so the check timed out.`);
@@ -488,10 +485,6 @@ function setSaveFeedback(message) {
  * host_permissions do not already cover it. Must be called from a user
  * gesture (the Save click) so chrome.permissions.request may prompt.
  */
-function toOriginPattern(url) {
-  return `${url.origin}/*`;
-}
-
 function requestOriginAccess(pattern) {
   return new Promise((resolve) => {
     try {
@@ -539,7 +532,8 @@ async function handleSave(event) {
     return;
   }
 
-  const pattern = toOriginPattern(parseUrl(values.apiUrl).url);
+  // The origin pattern for the address that will actually be used.
+  const pattern = `${parseUrl(values.apiUrl).url.origin}/*`;
   const allowed = await requestOriginAccess(pattern);
   if (!stillOpen()) return;
 
@@ -637,11 +631,11 @@ function setOpenFeedback(message) {
 function handleStorageChange(changes, area) {
   if (popupClosed) return;
 
-  if (area === STORAGE_AREAS.local && changes.session) {
+  if (area === 'local' && changes.session) {
     refreshAccount();
     return;
   }
-  if (area !== STORAGE_AREAS.sync) return;
+  if (area !== 'sync') return;
 
   let changed = false;
   for (const key of ['enabled', 'apiUrl', 'siteUrl']) {

@@ -55,7 +55,6 @@
   /* ------------------------------------------------------------- constants */
 
   const PANEL_WIDTH = 380;           // desktop width of the floating panel
-  const SMALL_VIEWPORT = 420;        // below this the panel goes near-full width
   const MARGIN = 12;                 // minimum distance from the viewport edges
   const GAP = 10;                    // distance from the selected passage
   const MAX_TEXT = 1500;             // server cap for POST /api/extension/briefing
@@ -618,6 +617,13 @@
 
   /* -------------------------------------------------------------- requests */
 
+  // Every failure path shows one banner and one announcement, so the two can
+  // never drift apart between the timeout, the network and the server errors.
+  function showBriefingFailure(message) {
+    renderError(message);
+    announce('The briefing could not be loaded.');
+  }
+
   function requestBriefing() {
     clearResponseTimer();
     const seq = ++state.seq;
@@ -625,8 +631,7 @@
     state.timer = setTimeout(() => {
       state.timer = 0;
       if (seq !== state.seq || !state.open) return;
-      renderError('Socius AI did not answer in time. Try again.');
-      announce('The briefing could not be loaded.');
+      showBriefingFailure('Socius AI did not answer in time. Try again.');
     }, RESPONSE_TIMEOUT_MS);
 
     sendToBackground(state.lastMessage, (err, response) => {
@@ -634,20 +639,15 @@
       if (seq !== state.seq || !state.open) return;
       clearResponseTimer();
       if (err) {
-        renderError(err);
-        announce('The briefing could not be loaded.');
+        showBriefingFailure(err);
         return;
       }
       if (!response) {
-        renderError('Socius AI did not answer. Try again.');
-        announce('The briefing could not be loaded.');
+        showBriefingFailure('Socius AI did not answer. Try again.');
         return;
       }
       if (response.ok) renderSuccess(response);
-      else {
-        renderError(errorText(response.error));
-        announce('The briefing could not be loaded.');
-      }
+      else showBriefingFailure(errorText(response.error));
     });
   }
 
@@ -817,7 +817,6 @@
       if (paragraph.childNodes.length > 0) paragraph.appendChild(document.createTextNode(' '));
       appendEmphasised(paragraph, line);
     }
-    flush();
     return wrap;
   }
 
@@ -901,53 +900,58 @@
     return result;
   }
 
+  function citationChip(citation, id) {
+    const chip = el('button', 'citation');
+    chip.type = 'button';
+    chip.setAttribute('aria-expanded', 'false');
+    chip.setAttribute('aria-controls', id);
+    chip.appendChild(svgIcon(TYPE_SHAPES[citation.type] || FILE_SHAPES, 13));
+    chip.appendChild(el('span', 'citation-title', citation.title || 'Untitled source'));
+    const location = locationLabel(citation);
+    if (location) chip.appendChild(el('span', 'citation-loc', location));
+    chip.appendChild(svgIcon(CHEVRON_SHAPES, 12));
+    return chip;
+  }
+
+  function citationDetail(citation, id) {
+    const detail = el('div', 'citation-detail');
+    detail.id = id;
+    detail.hidden = true;
+    detail.appendChild(el(
+      'blockquote',
+      undefined,
+      citation.excerpt ? citation.excerpt : NO_EXCERPT_NOTE,
+    ));
+
+    // Stored facts only: type label, section, match score, source link.
+    const meta = el('p');
+    const facts = [TYPE_LABELS[citation.type] || 'Source'];
+    if (typeof citation.section === 'string' && citation.section.trim() !== '') {
+      facts.push(citation.section.trim());
+    }
+    if (typeof citation.score === 'number' && Number.isFinite(citation.score)) {
+      facts.push('match ' + Math.round(citation.score * 100) + '%');
+    }
+    meta.appendChild(document.createTextNode(facts.join(' \u00b7 ')));
+    const url = safeUrl(citation.url);
+    if (url) {
+      meta.appendChild(document.createTextNode(' \u00b7 '));
+      const link = el('a', undefined, 'Open source');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      meta.appendChild(link);
+    }
+    detail.appendChild(meta);
+    return detail;
+  }
+
   function citationsList(citations) {
     const list = el('div', 'citations');
     citations.forEach((citation, index) => {
       const id = 'soc-panel-cite-' + index;
-
-      const chip = el('button', 'citation');
-      chip.type = 'button';
-      chip.setAttribute('aria-expanded', 'false');
-      chip.setAttribute('aria-controls', id);
-      chip.appendChild(svgIcon(TYPE_SHAPES[citation.type] || FILE_SHAPES, 13));
-      chip.appendChild(el('span', 'citation-title', citation.title || 'Untitled source'));
-      const location = locationLabel(citation);
-      if (location) chip.appendChild(el('span', 'citation-loc', location));
-      chip.appendChild(svgIcon(CHEVRON_SHAPES, 12));
-
-      const detail = el('div', 'citation-detail');
-      detail.id = id;
-      detail.hidden = true;
-      detail.appendChild(el(
-        'blockquote',
-        undefined,
-        citation.excerpt ? citation.excerpt : NO_EXCERPT_NOTE,
-      ));
-
-      // Stored facts only: type label, section, match score, source link.
-      const meta = el('p');
-      const facts = [TYPE_LABELS[citation.type] || 'Source'];
-      if (typeof citation.section === 'string' && citation.section.trim() !== '') {
-        facts.push(citation.section.trim());
-      }
-      if (typeof citation.score === 'number' && Number.isFinite(citation.score)) {
-        facts.push('match ' + Math.round(citation.score * 100) + '%');
-      }
-      meta.appendChild(document.createTextNode(facts.join(' \u00b7 ')));
-      const url = safeUrl(citation.url);
-      if (url) {
-        meta.appendChild(document.createTextNode(' \u00b7 '));
-        const link = el('a', undefined, 'Open source');
-        link.href = url;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        meta.appendChild(link);
-      }
-      detail.appendChild(meta);
-
-      list.appendChild(chip);
-      list.appendChild(detail);
+      list.appendChild(citationChip(citation, id));
+      list.appendChild(citationDetail(citation, id));
     });
     return list;
   }
@@ -982,11 +986,18 @@
 
   function schedulePlace() {
     if (!state.open || !state.host) return;
-    if (state.raf) cancelAnimationFrame(state.raf);
+    cancelPlace();
     state.raf = requestAnimationFrame(() => {
       state.raf = 0;
       place();
     });
+  }
+
+  function cancelPlace() {
+    if (state.raf) {
+      cancelAnimationFrame(state.raf);
+      state.raf = 0;
+    }
   }
 
   function place() {
@@ -1085,10 +1096,7 @@
     state.open = false;
     state.seq += 1; // invalidate any in-flight response
     clearResponseTimer();
-    if (state.raf) {
-      cancelAnimationFrame(state.raf);
-      state.raf = 0;
-    }
+    cancelPlace();
     detachListeners();
     announce('');
     hideHost();

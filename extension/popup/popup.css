@@ -222,12 +222,12 @@ body {
 .btn:active { background: var(--bg-active); }
 
 .btn:disabled,
-.btn[aria-disabled="true"] {
+.btn[aria-busy="true"] {
   opacity: 0.55;
-  cursor: not-allowed;
   pointer-events: none;
 }
-.btn[aria-busy="true"] { cursor: progress; pointer-events: none; }
+.btn:disabled { cursor: not-allowed; }
+.btn[aria-busy="true"] { cursor: progress; }
 
 .btn-primary {
   border-color: var(--blue);
@@ -425,7 +425,6 @@ body {
 }
 .status-dot.is-warn { background: var(--amber); }
 .status-dot.is-down { background: var(--red); }
-.status-dot.is-idle { background: var(--fg-subtle); }
 
 .status-text.is-warn { color: var(--amber); }
 .status-text.is-down { color: var(--red); }

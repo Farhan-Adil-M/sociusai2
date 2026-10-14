@@ -26,7 +26,7 @@
 (() => {
   'use strict';
 
-  const DEFAULTS = { enabled: true, apiUrl: 'https://socius-ai.vercel.app' };
+  const DEFAULTS = { enabled: true, apiUrl: 'https://sociusai2.vercel.app' };
   const BLOCK_SELECTOR = 'p, li, blockquote, dd, dt, td, th, h2, h3, figcaption';
   const SKIP_SELECTOR = 'nav, header, footer, aside, form, script, style, noscript, [role="navigation"]';
   const PANEL_HOST_ATTR = 'data-socius-panel';
@@ -319,10 +319,6 @@
     return false;
   }
 
-  function isInsideBubble(node) {
-    return hasAncestorWith(node, BUBBLE_ATTR);
-  }
-
   // The card and the briefing panel are both ours. The panel moves focus to
   // itself when it opens, so "focus left" must not mean "dismiss the card" —
   // that used to happen, and the ask card vanished the instant the panel
@@ -430,6 +426,12 @@
     return marks[0];
   }
 
+  // A one-off message card for a selection that could not be highlighted at
+  // all: no highlight is created, so there is nothing to ask about.
+  function showSelectionProblem(rect, label, note) {
+    showBubbleAt(rect, null, { label, note, tone: 'error', action: 'wait' });
+  }
+
   function commitSelection() {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
@@ -443,24 +445,16 @@
     if (!selectionIsSafe(range)) return;                    // never half-wrap a page's controls
 
     if (text.length > MAX_SELECTION_CHARS) {
-      showBubbleAt(range.getBoundingClientRect(), null, {
-        label: 'Selection too long',
-        note: 'Socius AI accepts up to ' + MAX_SELECTION_CHARS + ' characters. This one is '
-          + text.length + ' — select a shorter passage.',
-        tone: 'error',
-        action: 'wait',
-      });
+      showSelectionProblem(range.getBoundingClientRect(), 'Selection too long',
+        'Socius AI accepts up to ' + MAX_SELECTION_CHARS + ' characters. This one is '
+        + text.length + ' \u2014 select a shorter passage.');
       return;
     }
 
     pruneSelectionMarks();
     if (selectionMarks.size >= MAX_HIGHLIGHTS) {
-      showBubbleAt(range.getBoundingClientRect(), null, {
-        label: 'Too many highlights',
-        note: 'This page already carries ' + MAX_HIGHLIGHTS + ' highlights. Refresh the page to start again.',
-        tone: 'error',
-        action: 'wait',
-      });
+      showSelectionProblem(range.getBoundingClientRect(), 'Too many highlights',
+        'This page already carries ' + MAX_HIGHLIGHTS + ' highlights. Refresh the page to start again.');
       return;
     }
 

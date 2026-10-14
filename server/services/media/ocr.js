@@ -59,20 +59,18 @@ export const RELIABILITY = Object.freeze({
   unknown: 'unknown',
 });
 
-function envNumber(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-/** A positive number, or the fallback when the value is absent, zero or junk. */
-function positiveOr(value, fallback) {
+/**
+ * A positive number, or the fallback when the value is absent, zero or junk.
+ * Shared with `extract/image.js`, which reads the same shape of env override.
+ */
+export function positiveOr(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
 /** The configured OCR budget, in ms (env `OCR_TIMEOUT_MS`, default 45 s). */
 export function ocrTimeoutMs() {
-  return envNumber('OCR_TIMEOUT_MS', DEFAULT_TIMEOUT_MS);
+  return positiveOr(process.env.OCR_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
 }
 
 // ---------------------------------------------------------------- reliability
@@ -145,19 +143,37 @@ function localLanguageDirs() {
 }
 
 /**
+ * The trained-data file inside `dir`, or null. Prefers the plain file, then
+ * the gzipped one, and returns the full path so the caller knows WHICH it got.
+ *
+ * That distinction matters: `gzip` passed to createWorker is not a hint, it is
+ * an instruction about the file NAME the engine should request. The engine
+ * asks for `<langPath>/eng.traineddata` when gzip is false, so a directory
+ * holding only `eng.traineddata.gz` — which is exactly what the
+ * @tesseract.js-data/eng npm package ships — fails with ENOENT unless the
+ * caller flips it. This function exists because that case shipped broken and
+ * was only caught by running it.
+ */
+function languageDataFile(dir) {
+  for (const name of [`${OCR_LANGUAGE}.traineddata`, `${OCR_LANGUAGE}.traineddata.gz`]) {
+    const file = path.join(dir, name);
+    try {
+      if (fs.statSync(file).isFile()) return { file, gzipped: name.endsWith('.gz') };
+    } catch {
+      // not here — keep looking
+    }
+  }
+  return null;
+}
+
+/**
  * First local directory that already holds `eng.traineddata`, or null. Both the
- * plain and the gzipped file are accepted: the engine detects the gzip magic
- * bytes itself after reading whichever name it is given.
+ * plain and the gzipped file are accepted — see languageDataFile for why the
+ * caller has to be told which one it found.
  */
 function findLocalLanguageDir() {
   for (const dir of localLanguageDirs()) {
-    for (const name of [`${OCR_LANGUAGE}.traineddata`, `${OCR_LANGUAGE}.traineddata.gz`]) {
-      try {
-        if (fs.statSync(path.join(dir, name)).isFile()) return dir;
-      } catch {
-        // not here — keep looking
-      }
-    }
+    if (languageDataFile(dir)) return dir;
   }
   return null;
 }
@@ -328,9 +344,16 @@ export async function readImageText(buffer, options = {}) {
   const engineFailure = new Promise((_resolve, reject) => {
     reportEngineFailure = () => reject(engineReadFailure());
   });
+  const dataFile = languageDataFile(dir);
   const engineOptions = {
     langPath: dir,
-    gzip: false, // reads `<dir>/<lang>.traineddata`; gzip is auto-detected after
+    // Which name the engine should ask for. This is about the FILE NAME, not
+    // the bytes: a plain-named file is requested as-is and tesseract detects
+    // gzip content from the magic bytes itself (which is how the download
+    // path's gzipped-content-but-plain-named file works). A `.gz`-named
+    // directory -- what @tesseract.js-data/eng ships -- needs this flipped,
+    // or the engine asks for a `eng.traineddata` that does not exist.
+    gzip: Boolean(dataFile?.gzipped),
     cacheMethod: 'none', // no read-through cache, no writes into the deploy
     logger: (message) => tracker.record(message),
     errorHandler: (err) => {
