@@ -1,97 +1,131 @@
 /* =============================================================================
    Socius2 — accessibility overrides (A47, Wave 5)
 
-   Loaded LAST on every page, after tokens/base/components/shell/<page>:
+   Loaded LAST on every page, after the shared layer and the page sheet:
+
      tokens.css → base.css → components.css → shell.css → <page>.css → a11y.css
 
-   This sheet does one job: close the WCAG 2.2 AA gaps that a page or the
-   shared component layer leaves open, in a way that survives every page
-   without editing any page, script or other stylesheet. Every rule below
-   traces to a specific, measured finding — see docs/A11Y.md for the audit
-   and the measurements.
+   This sheet has one job: close the WCAG 2.2 AA gaps that remain once every
+   page is built, from a single owned file, without editing any page, script
+   or other stylesheet. Every rule below traces to a finding that was measured
+   in a real browser against a running server — the numbers live in
+   docs/A11Y.md, which is the audit report that accompanies this file.
 
-   Rules of engagement:
-     · Values are always var(--token) from tokens.css. Raw px appears only
-       for target sizes, which are dimension values.
-     · Colour is never re-invented: contrast fixes choose an EXISTING token
-       or a computed value kept in scope as a local custom property.
-     · :where() is used wherever the rule should win on specificity without
-       needing it, so a page sheet can still opt out deliberately.
-     · The landing page's pixel identity (body.pixel) is untouched: no rule
-       here redefines --pixel-*, --font-pixel, radii or the hard offset
-       shadows. The two landing fixes pick deeper pink from the same palette.
+   House rules for this sheet:
+     · Colour is never invented. A contrast fix picks an existing token from
+       the same palette (--pixel-pink-dk) or a computed value documented with
+       its measured ratio, and never introduces a new swatch.
+     · Sizes are the only raw px, because target size is a dimension.
+     · Specificity is the minimum that wins. Most rules use :where() so a
+       page sheet can still opt out deliberately; the two landing overrides
+       need one real class (`body.pixel …`) to beat landing.css, and that
+       is explained where they are declared.
+     · The landing page's pixel identity is preserved: no rule below touches
+       --pixel-* tokens, --font-pixel, radii, borders or the hard offset
+       shadows. The two landing fixes deepen one fill and one glyph inside the
+       same pink family.
    ========================================================================== */
 
+/* ===========================================================================
+   0 · CONTRAST — the one systemic failure  (WCAG 1.4.3, AA)
+   ========================================================================
+   --fg-muted resolves to --ink-3 (#6B7480). Measured in the browser:
+
+        #6B7480 on --canvas  #F4F6F8 → 4.37 : 1
+        #6B7480 on --canvas-2 #EAEDF1 → 4.03 : 1
+        #6B7480 on --paper   #FFFFFF → 4.74 : 1
+
+   All three sit under the 4.5:1 floor for normal-size text, and --fg-muted is
+   consumed by .eyebrow, .muted, .lead, .help, .row-meta, .badge, .avatar,
+   .citation-loc, .breadcrumb a, .page-head p and .empty-state-text — which is
+   why it was the most-reported failure on the site (9 of 12 pages).
+
+   The replacement, #5F6874, is the same cool grey one step darker. Measured
+   on every background the app can produce:
+
+        --canvas    #F4F6F8 → 5.21      --pixel-cream  #F5F7FF → 5.28
+        --canvas-2  #EAEDF1 → 4.81      --pixel-blue-bg #E3EAFF → 4.70
+        --paper     #FFFFFF → 5.65      --pixel-pink-bg #FFE6F2 → 4.80
+        --blue-soft #E9EFFD → 4.90      --green-soft    #E4F4EE → 4.97
+        --amber-soft#FDF1DC → 5.05      --red-soft      #FCEBEA → 4.90
+        --pink-soft #FCEAF1 → 4.89      --violet-soft   #F1ECFC → 4.88
+
+   One declaration, every page, no new palette.
+
+   Note for the next reader: custom properties are substituted on the element
+   that DECLARES them. tokens.css writes `--fg-muted: var(--ink-3)` on :root,
+   so it resolved to #6B7480 once and was inherited as that value — which is
+   why base.css's `.pixel` remap of --ink-3 never reached .muted/.help/.badge
+   on the landing page. Declaring the value here on :root covers both
+   palettes, and the two measurements above confirm it passes on the poster
+   backgrounds too.
+   ======================================================================== */
 :root {
-  /* ---------------------------------------------------------------- contrast
-     --fg-muted is --ink-3 (#6B7480). Measured at 4.37:1 on --canvas and
-     4.03:1 on --canvas-2, both under the 4.5:1 AA floor for normal text —
-     the single most common failure on the site (9 of 12 pages). #5F6874
-     holds the same cool-grey hue and measures 4.81:1 on --canvas-2 and
-     5.21:1 on --canvas, so it passes on every background in the system.
-     Declared on :root. Note for the reader: custom properties are
-     substituted on the element that DECLARES them, so `--fg-muted` resolved
-     to #6B7480 on :root and inherited that value — which is why the .pixel
-     scope's remap of --ink-3 never reached .muted/.help/.badge on the
-     landing page. One declaration here covers both palettes; #5F6874
-     measures 5.28:1 on --pixel-cream and 4.80:1 on --pixel-pink-bg. */
   --fg-muted: #5F6874;
 }
 
-/* ------------------------------------------------------- landing page (A21)
-   Two measured contrast gaps in the pixel poster. Both are fixed with a
-   colour that already exists in the --pixel- palette, so the arcade identity
-   (pink / blue / white, 3px ink borders, hard offset shadows, square
-   corners) survives unchanged. Measured in docs/A11X.md → A11Y.md §2. */
+/* ===========================================================================
+   1 · LANDING PAGE — the poster's two measured gaps  (WCAG 1.4.3, AA)
+   ========================================================================
+   The pixel palette is otherwise strong: --pixel-ink on --pixel-white is
+   18.78:1, --pixel-slate on --pixel-white is 9.49:1, --pixel-mute on every
+   poster background is 4.68–5.63:1. Two spots used #FF3E9A (--pixel-pink),
+   which on white is 3.28:1.
 
-/* .px-step-num: white on --pixel-pink (#FF3E9A) = 3.28:1, needs 4.5.
-   White on --pixel-pink-dk (#D91B72) = 4.83:1. The marker keeps its 3px ink
-   border and its offset shadow; only the fill deepens one step. */
-:where(body.pixel) :where(.px-step-num) {
+     · .px-step-num  white on #FF3E9A → 3.28 : 1   (22px / 400 ⇒ needs 4.5)
+     · .px-prompt    #FF3E9A on white → 3.28 : 1   (14px / 600 ⇒ needs 4.5)
+
+   Both move to --pixel-pink-dk (#D91B72), which is already in the palette:
+   white on it is 4.83:1, and it on white is also 4.83:1. The step marker
+   keeps its 3px ink border, its square corner and its hard offset shadow —
+   only the fill deepens one step, which is the same move the hover states
+   already make.
+   ======================================================================== */
+
+/* Selector note: landing.css writes `.px-step-num { background: … }` at
+   (0,1,0), so a :where()-wrapped override at (0,0,0) would LOSE. `body.pixel
+   .px-step-num` is (0,1,1) — one class higher than the rule it replaces, and
+   anchored to the scope A21 already put on <body>, so it cannot touch the app
+   interior even by accident. */
+body.pixel :where(.px-step-num) {
   background: var(--pixel-pink-dk);
 }
 
-/* .px-prompt ">": --pixel-pink on --pixel-white = 3.28:1, needs 4.5.
-   The glyph is decorative (aria-hidden), but it is still visible text. */
-:where(body.pixel) :where(.px-prompt) {
+body.pixel :where(.px-prompt) {
   color: var(--pixel-pink-dk);
 }
 
 /* ===========================================================================
-   1 · FOCUS VISIBILITY  (WCAG 2.4.7 Focus Visible, 2.4.11/2.4.13 AA)
+   2 · FOCUS — visible, whole, and not hidden under the chrome
+   (WCAG 2.4.7 Focus Visible, 2.4.11 Focus Not Obscured, 1.4.11 Non-text)
    ========================================================================
    base.css already draws a 2px --blue outline at 2px offset on every
-   :focus-visible element, and that solid #1D4ED8 measures 6.70:1 on white and
-   6.19:1 on --canvas, comfortably over the 3:1 floor. What is missing is
-   coverage: the outline is clipped wherever an ancestor establishes a
-   clipping or scrolling context, and it lands flush against the top of the
-   viewport where the sticky topbar sits.
+   :focus-visible element, and solid #1D4ED8 measures 6.70:1 on white and
+   6.19:1 on --canvas — well over the 3:1 floor. So the focus indicator
+   exists and it is strong enough. What this sheet adds is coverage.
 
-   Nothing here changes HOW a control looks when focused — only that the ring
-   is actually visible, whole, and not hidden under sticky chrome.
-   ========================================================================== */
+   Known gap, filed rather than hidden: where an ancestor sets
+   `overflow: hidden` (.panel, .modal-dialog) a focus ring at the very edge
+   of that box is still clipped. Removing the clipping means changing those
+   ancestors' overflow — a layout change that is not additive and is not
+   mine to make, so it is recorded in docs/A11Y.md §4 as a HANDOFF item for
+   A01/A02 rather than worked around here.
+   ======================================================================== */
 
-   A known limitation of this approach, recorded rather than papered over:
-   where an ancestor sets `overflow: hidden` (`.panel`, `.modal-dialog`), the
-   2px outline can still be clipped at the very edge. That cannot be repaired
-   from this sheet without changing those ancestors' overflow (a layout change
-   that is not mine to make), so it is filed in docs/A11Y.md §4 instead. */
-
-/* A control that scrolls into view under the sticky topbar (60px) + the
-   app gutter must clear it, or the focused row is hidden behind the bar.
+/* Focus must clear the sticky topbar (60px) and the sticky sidebar rail.
    base.css gives every [id] a 76px scroll margin; keyboard focus needs the
-   same, and the shell also pins the sidebar on desktop, so both edges are
-   covered (WCAG 2.4.11 Focus Not Obscured). */
+   same treatment or the focused row lands underneath the pinned bar. */
 :focus-visible {
   scroll-margin-top: calc(var(--topbar-h) + var(--s5));
   scroll-margin-bottom: var(--s5);
 }
 
 /* The skip link is the first tab stop on all 12 pages. base.css hides it with
-   a translateY and reveals it on :focus, but its own :focus-visible outline
-   is drawn *while* the transform is still applied in some browsers on the
-   first paint, and a focus ring on a translated element paints outside the
-   viewport. Making the reveal immediate gives the ring somewhere to be. */
+   a translateY and reveals it on :focus, so its own ring is drawn while the
+   transform is still applied — and an outline on a translated element can
+   paint outside the viewport, i.e. be invisible. Revealing immediately and
+   drawing the ring INSIDE the button (negative offset, white on the blue
+   fill = 6.70:1) puts it somewhere the user can actually see it. */
 :where(.skip-link):focus-visible {
   transform: none;
   outline: 2px solid var(--fg-onAccent);
@@ -99,72 +133,52 @@
 }
 
 /* ===========================================================================
-   2 · MINIMUM TARGET SIZE  (WCAG 2.5.8 Target Size (Minimum), AA — 24×24)
+   3 · MINIMUM TARGET SIZE  (WCAG 2.5.8 Target Size (Minimum), AA — 24×24)
    ========================================================================
-   Targets the audit found under 24px in either axis. The technique is the
-   "expand the hit area without moving a single pixel" pattern: a transparent
-   absolute pseudo-element grows the pointer/keyboard box, so layout, spacing
-   and appearance are byte-identical. A control's own visual box is never
-   resized — only its interactive box.
-   ========================================================================== */
+   Targets the audit measured below 24px in either axis. The technique is
+   "grow the interactive box, leave the pixel grid alone": a few pixels of
+   padding that an already-taller neighbour absorbs, so no visible rhythm
+   changes. Where a box genuinely cannot be padded, that is recorded in
+   docs/A11Y.md §4 instead of forced.
+   ======================================================================== */
 
-/* --- 2a · footer + header text links -------------------------------------
-   Measured 19px and 22px tall: landing `.px-footer-inner a` (90×19, 54×19),
-   login `.auth-header-link` (144×22), viewer `.breadcrumb a` (68×19).
-   These are inline text links inside a wrapping flex row, so growing the box
-   with padding would change the row's rhythm. An absolute pseudo-element
-   centred on the control does not. */
-:where(.px-footer-inner a, .auth-header-link, .breadcrumb a, .nav-item,
-       .nav-item__label) {
-  position: relative;
-}
-:where(.px-footer-inner a, .auth-header-link, .breadcrumb a)::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: max(100%, 24px);
-  height: max(100%, 24px);
-  translate: -50% -50%;
+/* --- 3a · text links in the landing footer, the login header and breadcrumbs
+   Measured: .px-footer-inner a = 90×19 and 54×19; .auth-header-link = 144×22;
+   .breadcrumb a = 68×19. Each sits in a row that is already taller than the
+   link (the footer note wraps to two lines, the login header has a 60px
+   min-height), so var(--s1) = 4px of block padding on each side lifts the
+   target to ≥24px without changing the row height anywhere it matters. */
+:where(.px-footer-inner a, .auth-header-link, .breadcrumb a) {
+  padding-block: var(--s1);
 }
 
-/* --- 2b · native checkbox / radio controls ---------------------------------
-   Measured 16×16 on the session page ("Show archived") and the four quiz
-   difficulty radios. They are inside a <label class="checkbox|.radio">, so
-   expanding the LABEL's box expands the control's target too — and because
-   the label is inline-flex, the transparent pseudo-element does not disturb
-   the row. The 24px minimum is applied to the label box, which already
-   carries the control. */
+/* --- 3b · native checkbox and radio rows
+   Measured on the real pages: the four quiz difficulty radios' labels are
+   207×22, 53×22, 75×22 and 55×22; the session page's "Show archived" label
+   is 116×22. The control inside each is 16×16. Under 2.5.8 the target is the
+   control TOGETHER with its label, so lifting the label to 24px is enough.
+   `align-items` is deliberately left at components.css's `flex-start` and the
+   control's own 2px top margin is left alone, so the visual position of every
+   checkbox does not move a pixel — only the row's height grows by 2px, which
+   no layout on any page is sensitive to. */
 :where(.checkbox, .radio) {
-  position: relative;
+  min-height: 24px;
 }
-:where(.checkbox, .radio)::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: max(100%, 24px);
-  height: max(100%, 24px);
-  translate: -50% -50%;
-}
-
-/* --- 2c · the app-shell nav items ------------------------------------------
-   `.nav-item` measures 36×40 already on desktop, but at ≤899.98px the rail
-   becomes an off-canvas drawer whose rows are 36px tall — still fine. No-op
-   kept out. */
 
 /* ===========================================================================
-   3 · REDUCED MOTION  (WCAG 2.3.3 Animation from Interactions, AAA-only in
-   the strict sense, but the audit's brief asks for it and it is cheap)
+   4 · REDUCED MOTION  (WCAG 2.3.3, and the audit brief)
    ========================================================================
-   tokens.css already zeroes --dur-* under the media query and base.css
-   already hard-stops animations, transitions and smooth scroll. Two things
-   still move:
-     · the landing page's pixel "press" transforms (translate 2–3px), which
-       are `transform`, not a duration — the transition is stopped but the
-       transform still snaps.
-     · `scroll-behavior: smooth` on html — handled in base.css.
-   The transforms are the identity's own micro-interaction; keeping them is a
-   design decision, and they are 120ms and instant. No override is added, and
-   that is recorded as a deliberate, measured choice in docs/A11Y.md §5.
+   Verified, not assumed: tokens.css zeroes --dur-fast/--dur-base/--dur-slow
+   under `@media (prefers-reduced-motion: reduce)`, and base.css hard-stops
+   every animation, transition and the smooth scroll on html. So the shared
+   layer is already compliant and this sheet deliberately adds NOTHING for
+   it. A baseline test with the preference forced to `reduce` is part of the
+   evidence in docs/A11Y.md §5.
+
+   The one exception is noted there too: the landing page's pixel "press"
+   applies a `transform: translate(2px, 2px)` on hover and translate(3px,3px)
+   on active. That is a position change, not a duration, so zeroing --dur-*
+   leaves it snapping. It is a 2–3px move on a button the user is already
+   pressing; it is part of A21's documented identity, and no override was
+   added for it. Recorded as a decision, not an oversight.
    ======================================================================== */

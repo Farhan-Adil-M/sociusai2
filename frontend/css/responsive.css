@@ -1,0 +1,98 @@
+/* =============================================================================
+   Socius2 — responsive corrections
+
+   Loaded LAST on every page, after the shared layer and the page sheet:
+
+     tokens.css → base.css → components.css → shell.css → <page>.css →
+     a11y.css → responsive.css
+
+   This sheet has one job: fix layout that measurably breaks at narrow widths,
+   from a single owned file, without editing any page, script or other
+   stylesheet. It is the responsive counterpart to a11y.css and follows the
+   same discipline.
+
+   House rules for this sheet:
+     · Every rule traces to a number measured in a real browser against a
+       running server. The numbers live in docs/RESPONSIVE.md, the audit
+       report that accompanies this file. Nothing here is speculative — a
+       breakpoint that no measurement justified is a rule that does not exist.
+     · A deliberate tradeoff is not a defect. Where the project chose to clip
+       or truncate content at a narrow width on purpose, that choice stands
+       and is recorded below rather than reversed.
+     · Specificity is the minimum that wins, and load order does the rest.
+     · The landing page's pixel identity is preserved: no rule below touches
+       --pixel-* tokens, --font-pixel, radii, borders or hard offset shadows.
+
+   ========================================================================== */
+
+/* ===========================================================================
+   1 · WRAPPING — prose was laid out as a flex row
+   ------------------------------------------------------------------------
+   .fv-keys is the keyboard-hint line in the document viewer
+   (frontend/js/components/file-viewer.js):
+
+     <p class="help fv-keys">[icon] Keyboard: ← → move between sections,
+      Home first, End last.</p>
+
+   viewer.css lays it out as a flex row:
+
+     .fv-keys { display: flex; align-items: center; gap: var(--s2); }
+
+   That is the wrong tool for this content. `display:flex` turns every text
+   run and every <span class="kbd"> into an independent flex item, and the
+   default `flex-wrap: nowrap` forbids any of them from moving to a new line.
+   Below ~768px the row has no room left, so the items are squeezed instead of
+   wrapping, and the text re-wraps *inside* its own squashed item — mid-phrase,
+   with the kbd chips detached from the words they describe.
+
+   Two fixes were measured on /viewer.html?source=<a real 2-page PDF>, giving
+   the element's height x width at viewport widths 320 / 375 / 768 / 1280:
+
+     flex-wrap: nowrap (as shipped)   262x58   317x58   673x23   938x23
+     flex-wrap: wrap   (first try)    262x86   317x55   673x23   938x23  ← worse
+     display: block    (this rule)    262x47   317x47   673x23   938x23
+
+   `flex-wrap: wrap` regressed the narrow case, because flex items wrap as
+   whole units: the long phrase " move between sections," is one item, so the
+   line breaks after it and the row gets *taller*. Wrapping was never the
+   problem — the flex container was.
+
+   Restoring normal inline flow is the fix. This is a `<p>` whose other class
+   is `.help`, so block is what it should have been all along, and the text
+   now breaks at word boundaries the way prose is supposed to. The icon needs
+   no alignment rule of its own: components.css `.icon` is already
+   `display:inline-block; vertical-align:-0.125em`, built for exactly this,
+   and it is what `.alert`, `.toast` and `.qz-notice` rely on.
+
+   This is purely a layout correction — the hint text, the kbd elements and
+   the icon are untouched, and no viewport width is special-cased.
+
+   The fix lives here rather than in viewer.css so that every responsive
+   correction stays in one auditable place, matching how a11y.css owns every
+   accessibility correction.
+   ========================================================================== */
+
+.fv-keys {
+  display: block;
+}
+
+/* ===========================================================================
+   2 · DELIBERATE TRADEOFFS — audited and left alone on purpose
+   ------------------------------------------------------------------------
+   These are recorded so a later pass does not mistake them for bugs. None of
+   them change anything below.
+
+   · .topbar__section (frontend/css/shell.css) truncates the section name with
+     `overflow:hidden; white-space:nowrap; text-overflow:ellipsis`. At a 320px
+     viewport the longest label, "Learning Progress", measures 114px of content
+     in an 88px box and renders as "Learning P…". shell.css documents this as
+     the intended behaviour: the alternative is pushing the health pill out of
+     the topbar. The full section name is still available in the sidebar nav,
+     so the information is not lost — it is merely not repeated in full.
+
+   · Horizontal scrolling is confined to the viewer's section nav and long code
+     or token runs, both of which guard against overflow in their own sheets
+     (`overflow-wrap: anywhere` on the reading surface). An audit of all 13
+     pages at 320 / 375 / 1280 found no element escaping the viewport, so
+     there is no global rule to add here.
+   ========================================================================== */

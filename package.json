@@ -23,6 +23,7 @@
     "@chroma-core/default-embed": "^0.1.9",
     "@libsql/client": "^0.18.0",
     "@supabase/supabase-js": "^2.117.3",
+    "@tesseract.js-data/eng": "^1.0.0",
     "adm-zip": "0.6.1",
     "chromadb": "3.5.0",
     "express": "5.3.0",
