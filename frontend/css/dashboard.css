@@ -1,0 +1,101 @@
+/* =============================================================================
+   Socius2 — Overview (dashboard) page sheet
+   Page-specific composition ONLY. Everything on this page is built from the
+   shared vocabulary in components.css (.panel .panel-head .panel-body .row-*
+   .badge .btn .progress .empty-state …); nothing here redefines a shared
+   component, and no raw colour/size is used — every value is a var(--token).
+
+   Load order (docs/ARCHITECTURE.md §5):  tokens → base → components → shell →
+   this file, last.
+   ========================================================================== */
+
+/* ===========================================================================
+   1 · LAYOUT
+   Two columns on a laptop (Continue beside Due now), one on a phone. The
+   Progress snapshot and Recent material panels span both columns. Putting the
+   tall Progress panel beside the short Due panel would leave a column of dead
+   space, so it gets the full width and lays its own topics out in a grid.
+   ======================================================================== */
+
+.dash-grid {
+  display: grid;
+  gap: var(--s5);
+  align-items: start;
+}
+
+@media (min-width: 960px) {
+  .dash-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+  .dash-grid > .dash-span { grid-column: 1 / -1; }
+}
+
+/* ===========================================================================
+   2 · CONTINUE — the suggested next step
+   The one block a student should read first, so it is the only tinted block on
+   the page. Its own colour is `--blue-ink` because `--fg-muted` (what an
+   `.eyebrow` normally uses) only reaches 4.1:1 on the `--blue-soft` tint.
+   The label is a <span> on purpose: inside a `.panel-body`, a first-child <p>
+   would also take components.css's prose margin-top and sit 12px low.
+   ======================================================================== */
+
+.dash-next {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  border: 1px solid var(--blue-line);
+  border-radius: var(--r-md);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+
+/* Keeps the whole tinted block on the darker blue for contrast. */
+.dash-next .eyebrow { color: inherit; }
+.dash-next__title { color: var(--blue-ink); }
+
+/* ===========================================================================
+   3 · PROGRESS SNAPSHOT — one bordered tile per topic
+   The tiles sit in components.css `.grid.grid-2` (which drops to one column
+   under 720px). `.dash-topic__name` is layout only — it is paired with
+   components.css `.row-title .truncate`: it must shrink so a long topic name
+   ellipsizes instead of pushing the level badge out of the tile.
+   ======================================================================== */
+
+.dash-topic {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+}
+
+.dash-topic__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.dash-topic__name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ===========================================================================
+   4 · DUE NOW — the headline count
+   ======================================================================== */
+
+.dash-count {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.dash-count__value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  color: var(--fg-strong);
+}

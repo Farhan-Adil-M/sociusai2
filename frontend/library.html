@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Materials — Socius AI</title>
+  <meta name="description" content="Your study material: import PDFs, Word documents, slides and web pages, then organise them into study sessions.">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/library.css">
+</head>
+<body>
+  <div id="app-shell"></div>
+
+  <main>
+    <div class="container stack-5 lib">
+
+      <header class="page-head">
+        <div class="stack-2">
+          <p class="eyebrow">Library</p>
+          <h1>My materials</h1>
+          <p>Everything you have added — PDFs, Word documents, slides and web pages. Socius grounds your tutoring, quizzes and flashcards in this material.</p>
+        </div>
+        <div class="page-head-actions">
+          <button type="button" class="btn btn-secondary" data-import-toggle
+                  aria-expanded="false" aria-controls="import-panel">
+            <span data-icon="plus"></span> Add material
+          </button>
+        </div>
+      </header>
+
+      <!-- Import panel: library.js mounts the shared material-import component
+           here on first open. Starts hidden; "Add material" toggles it. -->
+      <section id="import-panel" class="card lib-import" data-import-panel
+               aria-label="Add material" hidden></section>
+
+      <!-- Search / filter -->
+      <div class="toolbar lib-toolbar" role="search">
+        <div class="input-group toolbar-search">
+          <label class="sr-only" for="lib-search">Search your materials</label>
+          <input class="input" id="lib-search" type="search" autocomplete="off"
+                 placeholder="Search by title…">
+          <span class="input-group-btn" data-icon="search" aria-hidden="true"></span>
+        </div>
+        <div class="toolbar-actions">
+          <label class="sr-only" for="lib-type">Filter by type</label>
+          <select class="select lib-filter" id="lib-type"></select>
+          <label class="sr-only" for="lib-session">Filter by session</label>
+          <select class="select lib-filter" id="lib-session"></select>
+          <button type="button" class="btn btn-ghost btn-sm" data-refresh>
+            <span data-icon="refresh"></span> Refresh
+          </button>
+        </div>
+      </div>
+
+      <p class="text-sm muted lib-count" data-count aria-live="polite"></p>
+
+      <!-- The list renders here: skeleton → records, or the empty / error state. -->
+      <div class="stack-3" data-sources></div>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/library.js"></script>
+</body>
+</html>

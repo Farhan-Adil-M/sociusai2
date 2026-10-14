@@ -1,0 +1,567 @@
+/* =============================================================================
+   Socius2 — landing page (A21)
+   The pixel-art identity: 3px ink outlines, hard offset shadows (no blur),
+   square corners, pink / blue / white, and the Silkscreen bitmap face for
+   display text. This is the one loud page in the product; the app interior is
+   restrained (see components.css / shell.css).
+
+   Load order:  tokens.css → base.css → components.css → shell.css → landing.css
+
+   What lives here and why:
+     · composition   — the poster sections, the hero grid, the feature grid
+     · typography    — where Silkscreen applies instead of IBM Plex Serif
+     · motion        — the one hero reveal and the pixel button presses
+     · illustration  — the pixel-art sprite frames and the tutor window
+
+   What deliberately does NOT live here: a second component library. Every
+   button and badge is the shared `.btn` / `.badge` / `.card` from
+   components.css, and no selector below redefines one. `body.pixel` (base.css)
+   has already remapped the app colour roles onto the arcade palette and squared
+   every radius, so the shared components arrive in the pixel look on their own.
+   `.px-chunky` is the one landing-only modifier, applied *alongside* `.btn` for
+   the poster buttons — it adds a thick border, the hard shadow and the pixel
+   face, and changes no property the shared component relies on.
+
+   Values: every colour, space step, radius, shadow, duration and z-index is a
+   var(--token). Raw px appears only for widths, heights and border-widths.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ page --- */
+
+.landing {
+  background: var(--pixel-cream);
+  color: var(--pixel-ink);
+}
+
+/* Silkscreen is drawn for positive tracking; Plex needs none. */
+.landing h1,
+.landing .px-h2 {
+  font-family: var(--font-pixel);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+}
+
+.landing code {
+  padding: 0 var(--s1);
+  background: var(--pixel-blue-bg);
+  border: 1px solid var(--pixel-ink);
+}
+
+/* Anchors under the sticky nav must not land behind it (base.css only knows
+   about the app topbar, and its 76px offset is short by the 3px nav rule plus
+   the poster's breathing room). `.px-main` itself is the skip-link target, so it
+   needs the offset too, not only the sections inside it. */
+.px-main,
+.px-main :where([id]) {
+  scroll-margin-top: 96px;
+}
+
+/* --------------------------------------------------------------- poster cta */
+
+/* Landing-only chrome on top of the shared `.btn`. It adds the poster border,
+   the hard offset shadow, the pixel face and the press. It never resets or
+   overrides `.btn` itself. */
+.px-chunky {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-width: var(--pixel-border);
+  box-shadow: var(--pixel-shadow-sm);
+  transition: transform var(--dur-fast) steps(2), box-shadow var(--dur-fast) steps(2);
+}
+.px-chunky:hover {
+  transform: translate(2px, 2px);
+  box-shadow: var(--pixel-shadow);
+}
+.px-chunky:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 var(--pixel-ink);
+}
+
+/* ------------------------------------------------------------------- nav --- */
+
+.px-nav {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--pixel-white);
+  border-bottom: var(--pixel-border) solid var(--pixel-ink);
+}
+
+.px-nav-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+  width: 100%;
+  max-width: var(--shell-max);
+  min-height: 68px;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.px-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-family: var(--font-pixel);
+  font-size: var(--fs-base);
+  color: var(--pixel-ink);
+  text-decoration: none;
+}
+.px-brand-mark {
+  display: block;
+  width: 34px;
+  height: 34px;
+  padding: 3px;
+  background: var(--pixel-blue);
+  border: var(--pixel-border) solid var(--pixel-ink);
+  box-shadow: var(--pixel-shadow-sm);
+}
+.px-brand-mark svg,
+.px-feature-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.px-nav-links {
+  display: flex;
+  gap: var(--s5);
+  margin-inline-start: auto;
+}
+.px-nav-links a {
+  padding-block: var(--s1);
+  border-bottom: var(--pixel-border) solid transparent;
+  color: var(--pixel-slate);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+}
+.px-nav-links a:hover {
+  border-bottom-color: var(--pixel-pink);
+  color: var(--pixel-ink);
+}
+
+/* ------------------------------------------------------------------ hero --- */
+
+.px-hero {
+  border-bottom: var(--pixel-border) solid var(--pixel-ink);
+  background: var(--pixel-white);
+}
+
+.px-hero-inner {
+  display: grid;
+  /* Slightly favour the copy: Silkscreen is a wide face, and the headline must
+     still fit two lines at 1400px. */
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: clamp(var(--s5), 5vw, var(--s7));
+  align-items: center;
+  width: 100%;
+  max-width: var(--shell-max);
+  margin-inline: auto;
+  padding: clamp(var(--s6), 7vw, var(--s8)) var(--gutter);
+}
+
+.px-title {
+  /* Two lines at every width: the column is capped and the size comes down a
+     step from --fs-3xl, because Silkscreen is a wide bitmap face (about 0.72em
+     per glyph). */
+  max-width: 19ch;
+  font-size: clamp(1.7rem, 4vw, 2.9rem);
+  line-height: 1.18;
+  color: var(--pixel-ink);
+  text-shadow: 5px 5px 0 var(--pixel-blue-bg);
+}
+
+.px-lead {
+  max-width: 46ch;
+  margin-top: var(--s5);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  color: var(--pixel-slate);
+}
+
+.px-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s4);
+  margin-top: var(--s6);
+}
+
+.px-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-top: var(--s5);
+}
+.px-formats li {
+  padding: var(--s1) var(--s2);
+  background: var(--pixel-white);
+  border: 2px solid var(--pixel-ink);
+  box-shadow: var(--pixel-shadow-sm);
+  font-family: var(--font-pixel);
+  font-size: var(--fs-xs);
+}
+
+/* ------------------------------------------------- the tutor window (figure) */
+
+.px-window {
+  margin: 0;
+  background: var(--pixel-white);
+  border: var(--pixel-border) solid var(--pixel-ink);
+  box-shadow: 9px 9px 0 var(--pixel-ink);
+}
+
+.px-window-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--pixel-blue);
+  border-bottom: var(--pixel-border) solid var(--pixel-ink);
+}
+.px-window-title {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-xs);
+  color: var(--pixel-white);
+}
+.px-window-controls {
+  display: flex;
+  gap: var(--s1);
+}
+.px-window-controls i {
+  width: 12px;
+  height: 12px;
+  background: var(--pixel-white);
+  border: 2px solid var(--pixel-ink);
+}
+.px-window-controls i:last-child { background: var(--pixel-pink); }
+
+.px-window-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4) var(--s5);
+}
+
+.px-line {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.px-line-you {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-height: 1.6em;
+  font-weight: var(--fw-semibold);
+  color: var(--pixel-ink);
+}
+.px-prompt {
+  font-family: var(--font-pixel);
+  color: var(--pixel-pink);
+}
+.px-caret {
+  flex: none;
+  width: 9px;
+  height: 15px;
+  background: var(--pixel-pink);
+  animation: px-blink 760ms steps(1) infinite;
+}
+@keyframes px-blink { 50% { opacity: 0; } }
+
+.px-line-ai {
+  padding: var(--s3) var(--s4);
+  background: var(--pixel-blue-bg);
+  border: 2px solid var(--pixel-ink);
+  color: var(--pixel-slate);
+}
+.px-line-ai p { margin: 0; }
+
+.px-cites {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.px-cites li {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) var(--s2);
+  background: var(--pixel-white);
+  border: 2px solid var(--pixel-ink);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--pixel-slate);
+}
+.px-cite-file {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  background: var(--pixel-pink);
+  border: 2px solid var(--pixel-ink);
+}
+
+.px-window-status {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--pixel-ink);
+  color: var(--pixel-white);
+  font-family: var(--font-pixel);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+.px-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--pixel-pink);
+}
+
+/* The reveal only exists while the script is running it, so the static page
+   always shows every word. */
+.is-animating [data-answer],
+.is-animating [data-cites] li {
+  opacity: 0;
+}
+.is-animating [data-answer].is-shown,
+.is-animating [data-cites] li.is-shown {
+  opacity: 1;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+
+/* -------------------------------------------------------------- sections --- */
+
+.px-section {
+  padding-block: clamp(var(--s6), 6vw, var(--s8));
+  border-bottom: var(--pixel-border) solid var(--pixel-ink);
+}
+.px-section-alt { background: var(--pixel-blue-bg); }
+
+.px-section-inner {
+  width: 100%;
+  max-width: var(--shell-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.px-h2 {
+  max-width: 22ch;
+  font-size: var(--fs-xl);
+  line-height: 1.25;
+  color: var(--pixel-ink);
+}
+.px-h2-light { color: var(--pixel-white); }
+
+/* ---- the four steps: a real sequence, so a real <ol> with real numbers ---- */
+
+.px-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(var(--s4), 2.5vw, var(--s6));
+  margin-top: clamp(var(--s5), 3vw, var(--s7));
+}
+
+.px-step {
+  position: relative;
+  padding: var(--s5);
+  background: var(--pixel-white);
+  border: var(--pixel-border) solid var(--pixel-ink);
+  box-shadow: var(--pixel-shadow);
+}
+.px-step-num {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: var(--s4);
+  background: var(--pixel-pink);
+  border: var(--pixel-border) solid var(--pixel-ink);
+  color: var(--pixel-white);
+  font-family: var(--font-pixel);
+  font-size: var(--fs-lg);
+}
+.px-step h3 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--pixel-ink);
+}
+.px-step p {
+  margin-top: var(--s2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--pixel-mute);
+}
+
+/* ---- the four features: one ink grid, not four floating cards ---- */
+
+.px-features {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: var(--pixel-border);
+  margin-top: clamp(var(--s5), 3vw, var(--s7));
+  background: var(--pixel-ink);
+  border: var(--pixel-border) solid var(--pixel-ink);
+  box-shadow: 8px 8px 0 var(--pixel-ink);
+}
+.px-feature {
+  padding: clamp(var(--s5), 3vw, var(--s6));
+  background: var(--pixel-white);
+}
+.px-feature-icon {
+  display: block;
+  width: 58px;
+  height: 58px;
+  padding: var(--s1);
+  margin-bottom: var(--s4);
+  background: var(--pixel-pink-bg);
+  border: var(--pixel-border) solid var(--pixel-ink);
+}
+.px-feature:nth-child(2) .px-feature-icon,
+.px-feature:nth-child(4) .px-feature-icon { background: var(--pixel-blue-bg); }
+.px-feature h3 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--pixel-ink);
+}
+.px-feature p {
+  margin-top: var(--s2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--pixel-mute);
+}
+.px-feature em { color: var(--pixel-pink-dk); font-style: normal; font-weight: var(--fw-semibold); }
+
+/* ---- honest status ---- */
+
+.px-status {
+  display: grid;
+  grid-template-columns: 0.85fr 1.15fr;
+  gap: clamp(var(--s5), 4vw, var(--s7));
+  align-items: start;
+}
+.px-status-copy .px-lead { margin-top: var(--s4); }
+
+.px-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s5);
+  background: var(--pixel-white);
+  border: var(--pixel-border) solid var(--pixel-ink);
+  box-shadow: var(--pixel-shadow);
+}
+.px-status-list li {
+  /* Not a flex/grid item: its text is inline (<strong> plus text), so the marker
+     is positioned instead of becoming a sibling of the words. */
+  position: relative;
+  padding-inline-start: var(--s5);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--pixel-mute);
+}
+/* A pink pixel square per claim, centred on the first line: half of one line box
+   (--lh-body × --fs-sm) less the marker's own 14px height. */
+.px-status-list li::before {
+  content: '';
+  position: absolute;
+  top: calc((var(--lh-body) * var(--fs-sm) - 14px) / 2);
+  left: 0;
+  width: 10px;
+  height: 10px;
+  background: var(--pixel-pink);
+  border: 2px solid var(--pixel-ink);
+}
+.px-status-list strong { color: var(--pixel-ink); }
+
+/* ------------------------------------------------------------- closing cta -- */
+
+.px-cta {
+  padding-block: clamp(var(--s6), 6vw, var(--s8));
+  background: var(--pixel-blue);
+  border-bottom: var(--pixel-border) solid var(--pixel-ink);
+}
+.px-cta-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s4);
+  max-width: 46rem;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+  text-align: center;
+}
+.px-cta-inner p {
+  max-width: 52ch;
+  color: var(--pixel-blue-2);
+  font-size: var(--fs-base);
+  line-height: var(--lh-body);
+}
+
+/* ----------------------------------------------------------------- footer -- */
+
+.px-footer {
+  padding-block: var(--s5);
+  background: var(--pixel-white);
+}
+.px-footer-inner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s4);
+  width: 100%;
+  max-width: var(--shell-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+  font-family: var(--font-pixel);
+  font-size: var(--fs-xs);
+  color: var(--pixel-mute);
+}
+.px-footer-brand { color: var(--pixel-ink); }
+.px-footer-inner a {
+  color: var(--pixel-ink);
+  text-decoration: none;
+}
+.px-footer-inner a:hover { color: var(--pixel-pink-dk); }
+.px-footer-note {
+  flex: 1 1 22rem;
+  margin-inline-start: auto;
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  text-align: end;
+}
+
+/* ------------------------------------------------------------- responsive -- */
+
+@media (max-width: 1000px) {
+  .px-hero-inner { grid-template-columns: minmax(0, 1fr); }
+  .px-window { max-width: 40rem; }
+  .px-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .px-status { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 780px) {
+  .px-nav-links { display: none; }
+  .px-nav-inner { min-height: 60px; }
+  .px-nav-cta { margin-inline-start: auto; }
+
+  .px-features { grid-template-columns: minmax(0, 1fr); }
+  .px-title { text-shadow: 3px 3px 0 var(--pixel-blue-bg); }
+  .px-window { box-shadow: 6px 6px 0 var(--pixel-ink); }
+  .px-footer-note { margin-inline-start: 0; text-align: start; }
+}
+
+@media (max-width: 520px) {
+  .px-steps { grid-template-columns: minmax(0, 1fr); }
+  .px-actions { flex-direction: column; align-items: stretch; }
+  .px-actions .btn { width: 100%; }
+  .px-status-list { box-shadow: 4px 4px 0 var(--pixel-ink); }
+}

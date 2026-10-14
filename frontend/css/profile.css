@@ -1,0 +1,259 @@
+/* =============================================================================
+   Socius2 — Profile page (frontend/profile.html)
+   Page-specific composition only. Every shared block — .panel, .card, .btn,
+   .input, .select, .badge, .alert, .avatar, .spinner, .error, .help, .chip-remove
+   — comes from components.css and is composed here, never restyled.
+   Loaded last, so its rules win over the shared layers without !important.
+
+   Value rules: colour, space, radius, shadow come from var(--token); raw px is
+   used only for dimensions (width/height/border-width).
+   ========================================================================== */
+
+/* Panel bodies on this page space themselves with flex gaps, so switch off the
+   shared `.panel-body :where(p, ul)` top margin and add it back only where a
+   run of prose needs it (the two alert blocks). */
+
+.pf-body :where(p, ul) { margin-top: 0; }
+.pf-body .alert p,
+.pf-alert p { margin-top: var(--s2); }
+
+/* ===========================================================================
+   Account
+   ======================================================================== */
+
+.pf-account .pf-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s4);
+}
+
+.pf-identity-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+.pf-name {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+
+.pf-identity .badge { margin-inline-start: auto; }
+
+/* ===========================================================================
+   Preference fields
+   ======================================================================== */
+
+.pf-fields { display: flex; flex-direction: column; }
+
+.pf-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding-block: var(--s5);
+  border-top: 1px solid var(--border);
+}
+.pf-field:first-child { padding-top: 0; border-top: 0; }
+
+.pf-field-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+}
+
+.pf-field-titles { min-width: 0; }
+
+.pf-field-title {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+.pf-field-head .help { margin-top: var(--s1); }
+
+.pf-value { font-size: var(--fs-base); color: var(--fg-strong); }
+.pf-none { font-size: var(--fs-sm); color: var(--fg-muted); }
+
+/* ---- chips: interests, and short values ---- */
+
+.pf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+.pf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 32px;
+  padding-inline: var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  background: var(--bg-surface);
+  color: var(--fg-default);
+  font-size: var(--fs-sm);
+}
+.pf-chip.is-guess {
+  border-color: var(--amber-line);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.pf-chip .chip-remove { font-size: var(--fs-base); }
+
+/* ---- row list: goals and subjects in read mode ---- */
+
+.pf-list { display: flex; flex-direction: column; }
+
+.pf-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  padding-block: var(--s3);
+}
+.pf-row + .pf-row { border-top: 1px solid var(--border); }
+.pf-list > .pf-row:first-child { padding-top: 0; }
+
+.pf-row-main {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-sm);
+  color: var(--fg-strong);
+}
+
+/* ---- inferred block: unmistakably NOT the student's own words ---- */
+
+.pf-guess {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--amber-line);
+  border-inline-start-width: 3px;
+  border-radius: var(--r-md);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.pf-guess-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.pf-guess .help { color: var(--amber); }
+.pf-guess .pf-chip {
+  border-color: var(--amber-line);
+  background: var(--bg-surface);
+  color: var(--fg-strong);
+}
+.pf-guess .pf-row { border-top-color: var(--amber-line); }
+.pf-guess .pf-row-main { color: var(--fg-strong); }
+.pf-guess .badge { background: var(--bg-surface); }
+
+/* ---- editors ---- */
+
+.pf-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 11rem) auto;
+  gap: var(--s3);
+  align-items: center;
+}
+.pf-editor-subject { grid-template-columns: minmax(0, 1fr) minmax(0, 10rem) minmax(0, 6rem) auto; }
+.pf-editor .field { min-width: 0; }
+.pf-remove { justify-self: end; }
+
+.pf-addrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.pf-addrow .input { flex: 1 1 12rem; width: auto; min-width: 0; }
+.pf-addrow .btn { flex: none; }
+
+.pf-field-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+}
+.pf-field-toolbar .help { margin-inline-start: auto; }
+
+.pf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* ---- notes ---- */
+
+.pf-note,
+.pf-editor-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+}
+.pf-note .icon,
+.pf-editor-note .icon { flex: none; margin-top: 2px; color: var(--fg-muted); }
+.pf-note p { flex: 1; }
+.pf-note strong { color: var(--fg-strong); }
+
+/* ---- panel-head legend: stated vs inferred key ---- */
+
+.pf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.pf-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--blue-line);
+  border-radius: var(--r-sm);
+  background: var(--blue-soft);
+  vertical-align: middle;
+}
+.pf-swatch.is-guess { border-color: var(--amber-line); background: var(--amber-soft); }
+
+/* ===========================================================================
+   Alerts and danger zone
+   ======================================================================== */
+
+.pf-alert-action { margin-top: var(--s3); }
+
+.pf-danger .btn-danger.is-armed { box-shadow: var(--focus-ring-danger); }
+
+/* ===========================================================================
+   Narrow screens: editors stack, badges stop pushing to the far edge.
+   ======================================================================== */
+
+@media (max-width: 720px) {
+  .pf-editor,
+  .pf-editor-subject { grid-template-columns: minmax(0, 1fr); }
+  .pf-remove { justify-self: start; }
+  .pf-field-toolbar .help { margin-inline-start: 0; }
+  .pf-identity .badge { margin-inline-start: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Nothing here animates; kept as a note that the page adds no motion. */
+}

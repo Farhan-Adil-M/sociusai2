@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Overview — Socius AI</title>
+  <meta name="description" content="Your study workspace: what to do next, your progress, your material and the flashcards that are due.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Load order is fixed by docs/ARCHITECTURE.md §5 — the page sheet is LAST.
+       shell.css is required: it styles the sidebar and topbar that
+       components/shell.js mounts into #app-shell. -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+  <!-- shell.js renders the sidebar, topbar and health pill in here, then moves
+       the <main> below into the content column. This page never repeats the
+       navigation markup. -->
+  <div id="app-shell"></div>
+
+  <main id="main">
+    <div class="container stack-6">
+
+      <header class="page-head">
+        <div class="stack-2">
+          <p class="eyebrow" data-dashboard-date></p>
+          <h1 data-dashboard-greeting>Welcome back</h1>
+          <p class="lead muted" data-dashboard-summary>Pulling your study workspace together…</p>
+        </div>
+        <div class="page-head-actions">
+          <a class="btn btn-secondary" href="library.html">Add material</a>
+          <a class="btn btn-primary" href="quiz.html">Start a quiz</a>
+        </div>
+      </header>
+
+      <div class="dash-grid">
+
+        <!-- 1 · Continue: the suggested next step plus anything already waiting -->
+        <section class="panel" aria-labelledby="continue-heading">
+          <div class="panel-head">
+            <h2 class="panel-title" id="continue-heading">Continue</h2>
+            <a class="btn btn-ghost btn-sm" href="study.html">Ask the tutor</a>
+          </div>
+          <div class="panel-body" data-dashboard-continue aria-busy="true"></div>
+        </section>
+
+        <!-- 2 · Flashcards due now (GET /api/decks/due) -->
+        <section class="panel" aria-labelledby="due-heading">
+          <div class="panel-head">
+            <h2 class="panel-title" id="due-heading">Due now</h2>
+            <a class="btn btn-ghost btn-sm" href="flashcards.html">Flashcards</a>
+          </div>
+          <div class="panel-body" data-dashboard-due aria-busy="true"></div>
+        </section>
+
+        <!-- 3 · Progress snapshot (GET /api/learner/progress) -->
+        <section class="panel dash-span" aria-labelledby="progress-heading">
+          <div class="panel-head">
+            <h2 class="panel-title" id="progress-heading">Progress snapshot</h2>
+            <a class="btn btn-ghost btn-sm" href="progress.html">View progress</a>
+          </div>
+          <div class="panel-body" data-dashboard-progress aria-busy="true"></div>
+        </section>
+
+        <!-- 4 · Recent material (GET /api/sources) -->
+        <section class="panel dash-span" aria-labelledby="materials-heading">
+          <div class="panel-head">
+            <h2 class="panel-title" id="materials-heading">Recent material</h2>
+            <a class="btn btn-ghost btn-sm" href="library.html">My materials</a>
+          </div>
+          <div data-dashboard-materials aria-busy="true"></div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/dashboard.js"></script>
+</body>
+</html>

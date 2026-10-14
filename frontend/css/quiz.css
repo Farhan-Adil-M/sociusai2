@@ -1,0 +1,470 @@
+/* =============================================================================
+   Socius2 — Assessments page (quiz.html)
+   Page-specific composition only. Every colour, space, radius, shadow, duration
+   and z-index is a var(--token) from tokens.css; raw px appears only for
+   control dimensions and border widths. No shared component (.btn, .card,
+   .badge, .panel, .progress, .citations …) is restyled here.
+
+   Load order:  tokens.css → base.css → components.css → shell.css → quiz.css
+   ========================================================================== */
+
+/* ===========================================================================
+   1 · GENERATOR
+   ======================================================================== */
+
+.qz-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+
+.qz-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+}
+.qz-form-actions .help { max-width: 40ch; }
+
+/* The four difficulty choices read as one wrapping row rather than a tall
+   column, so the generator stays compact on a desktop. */
+.qz-difficulty-choices { gap: var(--s4); }
+
+.qz-scope { white-space: nowrap; }
+
+/* ===========================================================================
+   2 · STAGE — the active question / results / state
+   ======================================================================== */
+
+.qz-stage { display: block; }
+
+/* ---- difficulty badge (the 1–4 question level) ---------------------------
+   A deliberate ramp: harder questions read warmer. The wording and the title
+   always say the level describes the QUESTION. It is never a claim about the
+   student's ability, so level 1 is neutral rather than "bad". */
+
+.qz-level {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 1px var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.qz-level-num {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-semibold);
+}
+.qz-level[data-level="2"] {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+.qz-level[data-level="3"] {
+  border-color: var(--amber-line);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.qz-level[data-level="4"] {
+  border-color: var(--pink-line);
+  background: var(--pink-soft);
+  color: var(--pink-ink);
+}
+
+.qz-minutes {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+}
+
+/* ---- the active question -------------------------------------------------- */
+
+.qz-quiz {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  padding: var(--s5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+
+.qz-quiz-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.qz-quiz-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+.qz-topic {
+  font-size: var(--fs-lg);
+  overflow-wrap: anywhere;
+}
+.qz-level-note {
+  max-width: 52ch;
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+}
+.qz-counter {
+  flex: none;
+  color: var(--fg-default);
+  font-size: var(--fs-sm);
+}
+.qz-counter strong { color: var(--fg-strong); }
+
+.qz-progress-block { display: flex; flex-direction: column; }
+
+/* ---- notices -------------------------------------------------------------- */
+
+.qz-notice .icon { margin-top: 2px; }
+.qz-notice-actions { margin-top: var(--s2); }
+
+/* ---- question + options --------------------------------------------------- */
+
+.qz-question { display: flex; flex-direction: column; gap: var(--s3); }
+.qz-question-num {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  color: var(--fg-muted);
+  text-transform: uppercase;
+}
+.qz-question-text {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  color: var(--fg-strong);
+}
+.qz-question-text:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 4px;
+  border-radius: var(--r-sm);
+}
+
+.qz-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* One answer option. The native radio stays in the DOM and focusable (it is
+   clipped, not removed), so arrow keys, Tab and screen readers all work; the
+   visible state is driven by `:has()` on the input. */
+.qz-option {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.qz-option:hover { border-color: var(--fg-subtle); }
+
+.qz-option-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+}
+
+.qz-option:has(.qz-option-input:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.qz-option:has(.qz-option-input:checked) {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+
+.qz-option-key {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  margin-top: 1px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
+.qz-option:has(.qz-option-input:checked) .qz-option-key {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--fg-onAccent);
+}
+
+.qz-option-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  color: var(--fg-strong);
+}
+
+.qz-option-mark {
+  flex: none;
+  margin-top: 3px;
+  color: var(--blue);
+  opacity: 0;
+}
+.qz-option:has(.qz-option-input:checked) .qz-option-mark { opacity: 1; }
+
+/* ---- question navigator --------------------------------------------------- */
+
+.qz-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.qz-nav-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.qz-nav-btn:hover { border-color: var(--fg-subtle); color: var(--fg-strong); }
+.qz-nav-btn.is-answered {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+.qz-nav-btn[aria-current="true"] {
+  border-color: var(--blue);
+  color: var(--blue-ink);
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+
+/* ---- action rows ---------------------------------------------------------- */
+
+.qz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+}
+.qz-actions-end { justify-content: flex-start; }
+
+/* ===========================================================================
+   3 · RESULTS
+   ======================================================================== */
+
+.qz-score-card {
+  display: grid;
+  gap: var(--s5);
+  padding: var(--s5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+
+@media (min-width: 640px) {
+  .qz-score-card {
+    grid-template-columns: minmax(160px, 200px) minmax(0, 1fr);
+    align-items: center;
+  }
+}
+
+.qz-score-figure {
+  display: grid;
+  place-items: center;
+  gap: var(--s1);
+  padding: var(--s5) var(--s4);
+  border: 1px solid var(--blue-line);
+  border-radius: var(--r-lg);
+  background: var(--blue-soft);
+  text-align: center;
+}
+.qz-score-value {
+  font-family: var(--font-serif);
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  color: var(--blue-ink);
+}
+.qz-score-caption {
+  font-size: var(--fs-sm);
+  color: var(--blue-ink);
+}
+
+.qz-score-body { min-width: 0; }
+.qz-verdict { color: var(--fg-default); }
+
+.qz-mastery { display: flex; flex-direction: column; gap: var(--s2); }
+.qz-mastery-note {
+  margin-top: var(--s1);
+  font-size: var(--fs-sm);
+  color: var(--fg-default);
+}
+
+.qz-section-title {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.qz-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.qz-review-item {
+  padding: var(--s5);
+  border: 1px solid var(--border);
+  border-inline-start-width: 3px;
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+.qz-review-item.is-correct { border-inline-start-color: var(--green); }
+.qz-review-item.is-incorrect { border-inline-start-color: var(--red); }
+
+.qz-review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+}
+.qz-review-index {
+  margin-inline-end: auto;
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+}
+
+.qz-verdict-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 2px var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  line-height: 1.5;
+}
+.qz-verdict-badge.is-correct {
+  border-color: var(--green-line);
+  background: var(--green-soft);
+  color: var(--green);
+}
+.qz-verdict-badge.is-incorrect {
+  border-color: var(--red-line);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.qz-review-question {
+  margin-top: var(--s3);
+  font-size: var(--fs-base);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  color: var(--fg-strong);
+}
+
+.qz-answers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.qz-answer {
+  display: flex;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+}
+.qz-answer.is-correct { background: var(--green-soft); }
+.qz-answer.is-incorrect { background: var(--red-soft); }
+
+.qz-answer-label {
+  flex: none;
+  width: 8rem;
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+}
+.qz-answer-value {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--fg-strong);
+}
+
+.qz-explanation {
+  margin-top: var(--s4);
+  padding-inline-start: var(--s4);
+  border-inline-start: 3px solid var(--border-strong);
+}
+.qz-explanation-label {
+  margin-bottom: var(--s2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+/* The .prose block keeps its own 68ch measure; inside a review card it can
+   breathe to the card width instead. */
+.qz-explanation .prose { max-width: none; }
+
+.qz-citations { margin-top: var(--s4); }
+.qz-citations-label {
+  margin-bottom: var(--s2);
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+
+/* ===========================================================================
+   4 · NARROW SCREENS
+   ======================================================================== */
+
+@media (max-width: 560px) {
+  .qz-answer { flex-direction: column; gap: var(--s1); }
+  .qz-answer-label { width: auto; }
+  .qz-review-item,
+  .qz-quiz,
+  .qz-score-card { padding: var(--s4); }
+}

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Tutor — Socius AI</title>
+  <meta name="description" content="Ask your AI tutor about the material you have added. Every answer is grounded in your sources and cites the exact file and page it came from.">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/study.css">
+</head>
+<body>
+  <!-- The shell (sidebar, topbar, health pill) is mounted into this host by
+       js/pages/study.js — never repeat its markup here. -->
+  <div id="app-shell"></div>
+
+  <main>
+    <div class="container stack-5">
+      <header class="page-head">
+        <div class="stack-2">
+          <p class="eyebrow">Grounded tutor</p>
+          <h1>AI Tutor</h1>
+          <p>Ask about anything in your material. Every answer is written from the passages
+             found in your sources, and each one is cited so you can check it yourself.</p>
+        </div>
+      </header>
+
+      <!-- Which material the tutor will search. Filled by js/pages/study.js. -->
+      <p class="tutor-scope" data-scope aria-live="polite"></p>
+
+      <!-- Demo-state notice, shown only in ?mock=1 (fixtures, not live AI). -->
+      <div data-demo hidden></div>
+
+      <!-- THE ONE CHAT. Message list, then the composer.
+           A second chat anywhere on this page would be a defect. -->
+      <section class="tutor" aria-labelledby="tutor-heading">
+        <h2 class="sr-only" id="tutor-heading">Tutor conversation</h2>
+
+        <div class="tutor-transcript" data-transcript></div>
+        <p class="sr-only" data-live></p>
+
+        <form class="tutor-composer" data-composer novalidate>
+          <label class="sr-only" for="question">Ask a question about your material</label>
+          <div class="tutor-composer-row">
+            <textarea class="textarea" id="question" name="question" rows="2" maxlength="300"
+                      placeholder="Ask a question about your material…"
+                      aria-describedby="question-hint"></textarea>
+            <button class="btn btn-primary tutor-send" type="submit" data-send disabled>
+              <span data-send-label>Send</span>
+            </button>
+          </div>
+          <div class="tutor-composer-foot" id="question-hint">
+            <span class="help">Enter sends · Shift + Enter adds a line · 3–300 characters</span>
+            <span class="help" data-count>0 / 300</span>
+          </div>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/study.js"></script>
+</body>
+</html>

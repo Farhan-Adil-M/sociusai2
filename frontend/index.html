@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Socius AI — study with your own material</title>
+  <meta name="description" content="Socius AI is a study companion. Upload your PDFs, slides, Word files and web pages; it answers from those files only, names the page it used, then builds quizzes and flashcards at your level.">
+
+  <!-- CSS layer order is mandatory (docs/ARCHITECTURE.md §5): tokens → base →
+       components → shell → this page. shell.css is included even though this
+       page renders no app chrome, so the five-sheet order holds exactly and no
+       shared class can ever arrive unstyled. -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/landing.css">
+</head>
+
+<!-- `pixel` is the landing-page identity scope from base.css: it remaps the app
+     roles onto the arcade palette and squares every corner, so the shared
+     .btn/.badge/.card render in the pixel look without a second component
+     library. `landing` is this page's own hook for landing.css. -->
+<body class="pixel landing">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="px-nav">
+    <div class="px-nav-inner">
+      <a class="px-brand" href="index.html" aria-label="Socius AI home">
+        <span class="px-brand-mark" data-sprite="book" aria-hidden="true"></span>
+        <span>Socius AI</span>
+      </a>
+      <nav class="px-nav-links" aria-label="Page sections">
+        <a href="#how">How it works</a>
+        <a href="#get">What you get</a>
+        <a href="#status">Status</a>
+      </nav>
+      <a class="btn btn-primary px-chunky px-nav-cta" href="login.html">Sign in</a>
+    </div>
+  </header>
+
+  <main id="main" class="px-main" tabindex="-1">
+
+    <!-- ================================================== hero -->
+    <section class="px-hero" aria-labelledby="heroTitle">
+      <div class="px-hero-inner">
+        <div class="px-hero-copy">
+          <h1 class="px-title" id="heroTitle">Your notes can talk back.</h1>
+          <p class="px-lead">
+            Upload the lecture PDF, the slides, the Word file, or the page you actually
+            have to study. Socius AI answers from those files only — and names the page
+            it used.
+          </p>
+
+          <div class="px-actions">
+            <a class="btn btn-primary btn-lg px-chunky" href="login.html" data-primary-cta>Sign in</a>
+            <a class="btn btn-secondary btn-lg px-chunky" href="dashboard.html">Open the app</a>
+          </div>
+
+          <ul class="px-formats">
+            <li>PDF</li>
+            <li>PowerPoint</li>
+            <li>Word</li>
+            <li>Web page</li>
+          </ul>
+        </div>
+
+        <!-- A picture of the actual product: a question typed into the tutor,
+             with the answer and the passages it came from. The full text is in
+             the markup, so it reads and prints correctly with JavaScript off;
+             landing.js only plays the typing reveal. -->
+        <figure class="px-window" data-window>
+          <div class="px-window-bar">
+            <span class="px-window-title">Socius AI · AI Tutor</span>
+            <span class="px-window-controls" aria-hidden="true"><i></i><i></i></span>
+          </div>
+
+          <div class="px-window-body">
+            <p class="px-line px-line-you">
+              <span class="px-prompt" aria-hidden="true">&gt;</span>
+              <span data-type="question">Explain the Krebs cycle in one paragraph.</span>
+              <span class="px-caret" data-caret hidden aria-hidden="true"></span>
+            </p>
+
+            <div class="px-line-ai" data-answer>
+              <p>
+                The Krebs cycle is the second stage of cellular respiration. Acetyl-CoA
+                joins oxaloacetate to make citrate; the cycle then releases carbon
+                dioxide, produces a little ATP, and loads the electron carriers NADH and
+                FADH&#8322; that drive the rest of respiration.
+              </p>
+            </div>
+
+            <ul class="px-cites" data-cites>
+              <li><span class="px-cite-file" aria-hidden="true"></span>BIO101_Lecture07.pdf · p. 12</li>
+              <li><span class="px-cite-file" aria-hidden="true"></span>Lecture07_notes.docx · para. 4</li>
+              <li><span class="px-cite-file" aria-hidden="true"></span>khanacademy.org · web page</li>
+            </ul>
+          </div>
+
+          <div class="px-window-status">
+            <span class="px-dot" aria-hidden="true"></span>
+            Grounded in 3 passages from your own library
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ============================================ how it works -->
+    <section class="px-section" id="how" aria-labelledby="howTitle">
+      <div class="px-section-inner">
+        <h2 class="px-h2" id="howTitle">How it works</h2>
+        <ol class="px-steps">
+          <li class="px-step">
+            <span class="px-step-num" aria-hidden="true">1</span>
+            <h3>Add your material</h3>
+            <p>Upload a PDF, slides, a Word file, or paste a link to a web page. Socius AI reads the text and keeps it in your own library.</p>
+          </li>
+          <li class="px-step">
+            <span class="px-step-num" aria-hidden="true">2</span>
+            <h3>It finds the right passage</h3>
+            <p>Before it answers anything, it searches your material and quotes the passage it used — with the file name and the page number.</p>
+          </li>
+          <li class="px-step">
+            <span class="px-step-num" aria-hidden="true">3</span>
+            <h3>Practise at your level</h3>
+            <p>Quizzes start easy and move up as you get topics right. Miss something and the next set eases back down.</p>
+          </li>
+          <li class="px-step">
+            <span class="px-step-num" aria-hidden="true">4</span>
+            <h3>Review with flashcards</h3>
+            <p>The same material becomes flashcards with a review schedule, so you spend your time on what you are about to forget.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ============================================ what you get -->
+    <section class="px-section px-section-alt" id="get" aria-labelledby="getTitle">
+      <div class="px-section-inner">
+        <h2 class="px-h2" id="getTitle">What you get</h2>
+        <div class="px-features">
+          <article class="px-feature">
+            <span class="px-feature-icon" data-sprite="doc" aria-hidden="true"></span>
+            <h3>Answers with receipts</h3>
+            <p>Every answer points at the file and page it came from. The page numbers come from what was stored when you uploaded, never from the AI's memory.</p>
+          </article>
+          <article class="px-feature">
+            <span class="px-feature-icon" data-sprite="quiz" aria-hidden="true"></span>
+            <h3>Marking you can check</h3>
+            <p>Your score is worked out by a fixed rule over the answers you gave. The AI writes the questions and explanations; it never decides your mark.</p>
+          </article>
+          <article class="px-feature">
+            <span class="px-feature-icon" data-sprite="cards" aria-hidden="true"></span>
+            <h3>Progress that stays honest</h3>
+            <p>A topic you have not been tested on says <em>not assessed yet</em>. It is never quietly rounded up to a full score, and your history survives restarts.</p>
+          </article>
+          <article class="px-feature">
+            <span class="px-feature-icon" data-sprite="chart" aria-hidden="true"></span>
+            <h3>It says when it does not know</h3>
+            <p>With nothing in your library to ground an answer, the tutor tells you so and suggests a topic from your own material instead of guessing.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================== honest status -->
+    <section class="px-section" id="status" aria-labelledby="statusTitle">
+      <div class="px-section-inner px-status">
+        <div class="px-status-copy">
+          <h2 class="px-h2" id="statusTitle">Where this is today</h2>
+          <p class="px-lead">
+            Socius AI is a working prototype built by a small team. It is honest about
+            what it can and cannot do.
+          </p>
+        </div>
+        <ul class="px-status-list">
+          <li><strong>Answers are AI-written.</strong> They can be wrong. Check them against the page each citation points to.</li>
+          <li><strong>Scoring and levels are not.</strong> They come from simple, written-down rules, so the same answers always give the same result.</li>
+          <li><strong>Your original files are not kept.</strong> Only the text is stored, so you can rebuild the search index without uploading again.</li>
+          <li><strong>Legacy .doc files are not supported.</strong> PDFs, PowerPoint, Word (<code>.docx</code>) and web pages are.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ================================================== closing cta -->
+    <section class="px-cta" aria-labelledby="ctaTitle">
+      <div class="px-cta-inner">
+        <h2 class="px-h2 px-h2-light" id="ctaTitle">Start with one file.</h2>
+        <p>
+          You do not need to move your whole course across. Add one lecture, ask one
+          question, and see whether the answer matches the page it cites.
+        </p>
+        <a class="btn btn-primary btn-lg px-chunky" href="login.html">Sign in</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="px-footer">
+    <div class="px-footer-inner">
+      <span class="px-footer-brand">Socius AI</span>
+      <a href="#main">Back to top</a>
+      <a href="login.html">Sign in</a>
+      <p class="px-footer-note">
+        A study companion, not a substitute for your course material. Answers are
+        AI-generated and can be wrong.
+      </p>
+    </div>
+  </footer>
+
+  <!-- Presentation only (pixel-art sprites + the hero reveal). The page is
+       complete without it; a module script is deferred, so nothing blocks the
+       first paint. No CDN, no build step. -->
+  <script type="module" src="js/pages/landing.js"></script>
+</body>
+</html>

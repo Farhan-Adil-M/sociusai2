@@ -1,0 +1,218 @@
+/* =============================================================================
+   Socius2 — Study Planner (page layer)
+   Loaded last, after tokens / base / components / shell.
+
+   This file holds ONLY what is unique to the planner: the day timeline, the
+   recommendation panel's typography, and the small stat tiles. Every colour,
+   space, radius, shadow and duration comes from var(--token); raw px is used
+   only for control dimensions and border widths. Shared components (.panel,
+   .card, .badge, .btn, .row-list, .chip, .empty-state, .sidebar-layout) are
+   composed, never redefined here.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ toolbar */
+
+.planner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s2);
+}
+
+/* The plan-length select sits under a label, so it is a little taller than the
+   button beside it; aligning the pair on their baseline block keeps them level. */
+.planner-horizon {
+  min-width: 148px;
+}
+
+/* ----------------------------------------------------------------- the plan */
+
+.plan-days {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.plan-day {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: var(--s4);
+}
+
+/* The rail that joins one day to the next. It reaches across the flex gap, so
+   the line is continuous from marker to marker. */
+.plan-day:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  inset-block: 44px calc(-1 * var(--s4));
+  inset-inline-start: 17px;
+  width: 2px;
+  background: var(--border);
+}
+
+.plan-day__marker {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--blue-line);
+  border-radius: var(--r-full);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semibold);
+}
+
+.plan-day__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+
+.plan-day__when {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-muted);
+}
+
+.plan-day__topic {
+  font-size: var(--fs-md);
+}
+
+.plan-day__reason {
+  font-size: var(--fs-sm);
+  color: var(--fg-muted);
+}
+
+.plan-day__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s1);
+}
+
+/* Push the call to action to the far edge of the row when there is room. */
+.plan-day__cta {
+  margin-inline-start: auto;
+}
+
+.plan-day__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+
+.plan-day__meta .icon {
+  color: var(--fg-subtle);
+}
+
+.dot-sep {
+  color: var(--fg-subtle);
+}
+
+/* ------------------------------------------------------------ recommendation */
+
+.advice-topic {
+  font-size: var(--fs-lg);
+}
+
+.advice-reason {
+  font-size: var(--fs-sm);
+  color: var(--fg-strong);
+}
+
+/* The honest note under a progress-derived recommendation (or an inline error).
+   Body text, so it must stay a block: a flex container would turn the note's
+   inline text and its <span class="mono"> into separate flex items and wrap
+   them onto their own lines. */
+.advice-note {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--border);
+}
+
+.advice-note .icon {
+  color: var(--fg-subtle);
+}
+
+/* -------------------------------------------------------------- stats tiles */
+
+.planner-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s2);
+}
+
+.planner-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  text-align: center;
+}
+
+.planner-stat dt {
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+
+.planner-stat dd {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  color: var(--fg-strong);
+}
+
+.planner-stat dd a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.planner-stat dd a:hover {
+  color: var(--blue);
+  text-decoration: underline;
+}
+
+.planner-links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* ---------------------------------------------------------------- responsive */
+
+@media (max-width: 560px) {
+  .plan-day {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: var(--s3);
+  }
+
+  .plan-day:not(:last-child)::before {
+    inset-block-start: 36px;
+    inset-inline-start: 13px;
+  }
+
+  .plan-day__marker {
+    width: 28px;
+    height: 28px;
+    font-size: var(--fs-xs);
+  }
+
+  .plan-day__cta {
+    margin-inline-start: 0;
+  }
+}

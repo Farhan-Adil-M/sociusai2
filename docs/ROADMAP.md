@@ -59,6 +59,19 @@ Items agents correctly filed rather than fixing in someone else's file. **I01 ow
 | 14 | `aiRouter` retry/backoff are module constants, not env-tunable — needs `AI_RETRY_ATTEMPTS` / `AI_RETRY_BACKOFF_MS` knobs in `config.js` | A11 → A04 | P6 |
 | 15 | `reindex.js` comment `EMBED_BATCH = 32 // matches services/embeddings.js` is stale (now 16) | A12 → A10 | P6 |
 | 16 | `decks.test.js` **intermittent** failure (`cardCount` 2 vs 3) — background auto-deck race in A19/A14's in-flight work. Seen by A11, A13, A18 independently. **Must be deterministic at the gate.** | A19/A14 | **P6 (high)** |
+| 17 | 🚨 **`frontend/sw.js` does not exist** — `shell.js` registers a service worker that 404s → every page logs `Unsupported MIME type ('text/html')`. The app believes it has offline support and doesn't. | A25/A27 → **A49** | W5 |
+| 18 | ⚠️ **`?mock=1` demo mode is broken for flashcards**: `mocks/fixtures.js` has no `GET /api/decks/due` (falls through to the deck-by-id matcher → 404) and its card PATCH **ignores `grade`**. Real mode fully verified. | A27 → A03/A05 (done) | **P6** |
+| 19 | `tutor_asked` / `quiz_answered` **duplicate** the legacy `question` / `quiz` activity rows → the feed shows two rows per action. Kept deliberately (legacy rows are pinned by `tests/api.test.js`). A40 must decide what to render. | A14/A17/A20 → A40 | W4 |
+| 20 | Contract "Frontend notes" ask for onboarding *on the study page*, but adding it recreates the legacy **second-chat** defect. A25 declined + filed a decision record. **Needs your call.** | A25 → user | **decision** |
+| 21 | ⚠️ **A quiz is not resumable** — there is no `GET /api/quiz/:id`, so a page reload mid-quiz loses every question (the 409 replay only works because the quiz is still in memory). Contract-compliant, but a student who refreshes loses their work. | A26 → A05/A17 | **P6** |
+| 22 | `?mock=1` quiz fixtures lack per-question `difficulty`/`estimatedMinutes`, so level badges vanish in demo mode — same root cause as #18 (stale `mocks/fixtures.js`) | A26 → A03 | P6 |
+| 23 | ⚠️ **`DELETE /api/sessions/:id` does not exist** (not in contract, not in `routes/sessions.js`) and there is **no "complete" state** (enum is `active\|archived`). A24's Delete button honestly reports the 404 instead of pretending. Decide: add the endpoint or remove the button. | A24 → A05/A20 | **P6** |
+| 24 | **`POST /api/share` has no `sessionId` field**, so "share *into a session*" can't be expressed — shared material always lands in My Materials. | A24 → A05/A37 | W4 |
+| 25 | **`scope-select.js` never imported** by session page — the session *is* the scope (server-enforced), so importing it would be dead code (AGENTS.md forbids). Confirm intent. | A24 → A23 | P6 |
+| 26 | `profile.js` reuses shell-owned `data-sign-out`, so `shell.js:252` binds `signOut()` to it **and** profile's own listener calls it → likely **double fire**. (A24 also caught: nav key is `'session'`, not `'sessions'` — my brief was wrong.) | found by P0 | P6 |
+| 27 | ⚠️ **`sizeLabelFor` returns the literal string `"null slides"`** for `youtube`/`image` types — it only handles pdf/pptx/webpage/docx. Latent (those types can't be ingested until Wave 4), but it will surface the moment A38/A39 ship. | A22 → A05/A08 | W4 |
+| 28 | 🎨 **Design question:** "Advanced" (level 4) is badged `.badge-accent` (**pink**), sitting next to amber "Needs revision" — pink marking the *best* level is questionable. Only 4 badge variants exist. | A22 → A01 | P6 |
+| 29 | `ui.js` lacks `document` / `video` / `image` glyphs, so pages reuse `book`/`slides`/`eye` for docx/youtube/image. Three glyphs requested. | A22 → A02 | P6 |
 
 ## ⚠️ Wave operating notes (learned from Waves 1–2)
 

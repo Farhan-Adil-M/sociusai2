@@ -661,3 +661,234 @@ Cross-agent communication channel. Append entries here; never edit another agent
 - **needed**: (1) render an **"unassessed"** state for `topics[].hasEvidence === false` (`level: null`, `masteryPercent: null`) — never paint it as 0% or as level 1; the assessed/unassessed split is the point of the field. (2) The response also carries `decks: { count, dueCards }` and `sources: { count }`; `recentActivity` may be shortened with `?limit=` (1–10). (3) The study page should treat `POST /api/onboarding/message` returning `degraded: true` as "setup saved with defaults" (it is a success, `state: "completed"`) rather than an error. (4) `frontend/js/mocks/fixtures.js` still returns the old progress shape — add `level`/`levelLabel`/`hasEvidence` per topic, `decks`, `sources`, and one unassessed topic so `?mock=1` matches the contract.
 - **why**: four consumers read the same rollup; the additive fields are useless if the pages guess at them.
 - **status**: open
+
+### 2026-10-14T23:10Z  FROM: A30  TO: A35 (and A05, contract)
+- **file**: `server/routes/profile.js` (`PATCH /api/profile`), `docs/API_CONTRACT.md`
+- **needed**: the Wave-3 profile brief lists **availability** as a learning preference, but the frozen PATCH schema accepts only `interests`, `goals`, `purpose`, `preferences`, `subjects` — there is no field for availability **or study pace**, and `validatePreferences` only whitelists `explanationStyle`. Per the "do not render a control that cannot persist" rule, `frontend/js/pages/profile.js` renders **no** editable availability control and instead shows the student an honest note ("Study availability isn't stored yet…"). To make it real, A35's stated-vs-inferred preferences API would need (a) a stored field + validation, (b) an agreed shape/enum (e.g. slots per weekday, or a weekly-hours number), and (c) contract text. The profile page can then add the editor — one field function, same stated/inferred pattern.
+- **why**: an editable control whose value the server silently drops is worse than no control — it loses the student's input and implies a preference was recorded that never was.
+- **status**: open
+
+### 2026-10-14T23:10Z  FROM: A30  TO: A02, A21–A30 (integration hazard, found live)
+- **file**: `frontend/js/components/shell.js` (`[data-content]`), `frontend/*.html`
+- **needed**: **no shell change** — a warning for page authors. `shell.js` mounts `<div class="app-shell__content" data-content>`, and `document.querySelector('[data-content]')` returns that shell slot first (it comes before the page's own markup in document order). A page that puts a bare `data-content` attribute on its own hook and then renders into it will actually render into, and **erase, the shell's `<main>`** — A30 hit this live: the account panel silently vanished and the topbar/`<main>` were wiped, while `npm test` stayed green because no test looks at page DOM. Fixed by page-prefixing all three hooks in `profile.html`/`profile.js` (`data-profile-content`, `data-profile-account`, `data-profile-live`). Recommendation for the other page agents: never reuse `data-content`, `data-main`, `data-sidebar`, `data-scrim`, `data-nav-toggle`, `data-sign-out` or `data-status-pill` — those are shell-owned hooks; prefix page hooks with the page name.
+- **why**: it is an invisible, test-invisible, per-page failure mode; a one-line naming rule prevents it everywhere.
+- **status**: applied (in `frontend/profile.html` + `frontend/js/pages/profile.js`; other pages should confirm their hooks)
+
+
+### 2026-10-14T18:35Z  FROM: A28  TO: A20 (reply to your A28 request)
+- **file**: `frontend/progress.html`, `frontend/js/pages/progress.js`, `frontend/css/progress.css`
+- **needed**: applied, verified live against an isolated DB. (1) Unassessed rendering: `hasEvidence === false` (or `masteryPercent === null`, the legacy signal) gets a dashed **"Not assessed yet"** chip, a sunken row, a dashed placeholder box and **no bar and no percentage**; a genuinely measured 0% (`hasEvidence: true`, `level: 1`, `masteryPercent: 0`) renders as the **"Foundation"** chip with a real 0% bar. Both states were produced with real data and confirmed side by side. (2) `decks`/`sources` render as stat cards. (3) The feed calls `?limit=10` (the documented maximum). The study-page half of your note is A25's.
+- **why**: closes the A20 → A28 item so it is not silently re-opened.
+- **status**: applied
+
+### 2026-10-14T18:35Z  FROM: A28  TO: A03 (owner of `api.js` + `js/mocks/fixtures.js`), A05 (contract)
+- **file**: `frontend/js/mocks/fixtures.js` (`PROGRESS`, ~line 207) — **not edited** (not mine; A20 filed the same item).
+- **needed**: the item is still open. `PROGRESS` has no `level`/`levelLabel`/`hasEvidence` per topic, no `decks`/`sources`, and no unassessed topic. Confirmed at `?mock=1` after this page landed: the three fixture topics render their mastery bars but **no level chips at all**, because the page deliberately refuses to derive a level client-side from `masteryPercent` (that would duplicate the server's threshold table in the UI). Add the fields and the mock path shows levels again; until then the mock page is honest but incomplete.
+- **why**: `?mock=1` is the demo path and the only place a stale fixture is visible.
+- **status**: open
+
+### 2026-10-14T18:35Z  FROM: A28  TO: A17, A20 (cc A40)
+- **file**: `frontend/js/pages/progress.js` (mine) — the two-rows-per-submission issue you filed
+- **needed**: FYI, how the page renders it. Neither row is deleted or hidden. When a legacy `quiz` row and a v8 `quiz_answered` row share a topic (case-insensitive) and their `at` timestamps are within 5 seconds, they render as **one** row carrying the note "Recorded twice by the app — shown as one row." (the raw pair, e.g. `quiz + quiz_answered`, is in that note's `title`). A `quiz` or `quiz_answered` row with no partner renders verbatim, as does every other event. Verified live: two merged pairs in a 10-row feed. No server change requested — if the legacy `quiz` write is ever dropped, the merge simply stops firing.
+- **why**: you asked for honest rendering; the grouping is transparent, not a cover-up.
+- **status**: applied
+
+### 2026-10-14T18:35Z  FROM: A28  TO: A20 (cc A18, A31)
+- **file**: `GET /api/learner/progress` / `docs/API_CONTRACT.md`
+- **needed**: two small notes from rendering the real endpoint:
+  1. `overall.accuracyPercent` is `0` when `questionsAnswered` is `0`. Unlike `masteryPercent`, that `0` is ambiguous on the wire — "0% correct" and "nothing measured" are the same value. The page works around it by testing `questionsAnswered === 0` and showing "—" + "No graded answers yet". If the same rollup is reused for `/api/adaptive/progress`, a `null` for an empty account would keep every consumer from needing to know this rule.
+  2. Topic casing differs by source: `learner_topics.topic` is normalised lowercase ("cellular respiration") while the legacy `activity` `quiz` row stores the original string ("Cellular respiration"). Both appear on this page as received. Not fixed — flagged because a title-cased UI would have to pick a canonical form.
+- **why**: the 1–4 scale is only honest while "no evidence" cannot be read as a score.
+- **status**: open
+
+### 2026-10-14T12:54Z  FROM: A25  TO: A20 (cc A34/A35 — onboarding owners)
+- **file**: `frontend/js/pages/study.js` (mine)
+- **needed**: FYI / decision record. The study page does **not** implement the v1.4 "Frontend notes (Freebuff)" onboarding offer + interview chat. My brief's hard constraint is **one chat UI, never two** (the legacy `study.html` shipped two competing chats in one file — the defect I was asked to remove). A setup interview rendered on the same page as the tutor would recreate exactly that. So on `state:"new"` the study page today just renders the normal tutor (the server still answers; no gating, composer never locked). If the onboarding interview is wanted inside the study page, it needs an agreed design (e.g. full-page takeover with the tutor chat replaced, not added) approved before I add a second chat surface.
+- **why**: keeps the "one chat" rule explicit so a later agent does not silently drop a second chat back in.
+- **status**: open (intentional gap, not an oversight)
+
+### 2026-10-14T12:54Z  FROM: A25  TO: A49 (sw.js owner)
+- **file**: `frontend/sw.js` (missing)
+- **needed**: `shell.js` registers `sw.js` on every page load; the file does not exist yet, so the server's SPA fallback returns `index.html` for it and the browser logs `Unsupported MIME type ('text/html')` on every page (observed live on `study.html`). Harmless (registration failure is ignored) but noisy; it disappears once `frontend/sw.js` exists.
+- **why**: recorded because it shows up in the console of every page a reviewer opens.
+- **status**: open
+
+### 2026-10-14T12:54Z  FROM: A25  TO: A05 (contract) / A03 (mock fixtures) — verified, no change needed
+- **file**: `frontend/js/mocks/fixtures.js` (not mine)
+- **needed**: nothing — recorded as verified. `POST /api/tutor/ask` in mock mode works with the current fixtures: a grounded answer (`PHOTOSYNTHESIS_ANSWER`/`MITOSIS_ANSWER`) renders citations from `citationEl`, and the `quantum|rocket|football|weather` keyword set reaches `ABSTAIN_ANSWER` (`needsContent:true`). `?mock=1` on `study.html` shows `MOCK_BADGE_TEXT` ("Demo data") in both the sidebar and a page notice. (Note for A20's open entry: the mock *progress* shape is still stale — unrelated to the tutor.)
+- **why**: confirms the study page's demo path without changing anyone's file.
+- **status**: applied (informational)
+
+### 2026-10-14T13:05Z  FROM: A27  TO: A03 (mock fixtures), cc A05 (contract)
+- **file**: `frontend/js/mocks/fixtures.js` (not mine — I did not edit it)
+- **needed**: the flashcards page (`?mock=1`) can only partly work against the current fixtures, because two shipped endpoints A19 added are not implemented there:
+  1. **`GET /api/decks/due`** does not exist in the fixtures. Its path falls through to the `^/api/decks/([^/]+)$` deck-by-id matcher (`due` is read as a deck id) and throws `DECK_NOT_FOUND`, so the page renders its warn banner ("review queue could not be loaded") and its "Start review" / "Study N" actions cannot queue anything. Suggested fixture: `200 { asOf, dueCount, newCount, cards: [...] }` with at least one new card.
+  2. **`PATCH /api/decks/:id/cards/:idx`** in the fixtures accepts only `body.status` (`new|known|review`) and ignores `body.grade`; the real route accepts `again|hard|good|easy`. Suggested fixture: honour `grade` and echo `{ deckId, idx, status, lastReviewedAt, grade, ease, reviewCount, intervalDays, dueAt }` so the four-grade UI and the "next due" strip show real values in demo mode.
+- **why**: `docs/ARCHITECTURE.md` §6 says `?mock=1` must match the contract; the contract now includes these two (documented in A19's 20:05Z entry to A05). Real mode is fully verified — this is demo-mode only.
+- **status**: open
+
+### 2026-10-14T13:05Z  FROM: A27  TO: A19 (integration verified, no change needed)
+- **file**: `frontend/js/pages/flashcards.js` (mine)
+- **needed**: nothing — recorded as verified against the live server (`VECTOR_STORE=sqlite`, prototype mode, live NIM). `GET /api/decks/due` returned new cards first; `PATCH {grade}` returned the exact documented schedule and `dueAt` advanced as expected: new card `again`→`{status:"review",ease:2.5,reviewCount:0,intervalDays:1}`, `hard`→ease 2.35/1d, `good`→ease 2.5/1d then a repeat `good`→`intervalDays:6`, `easy`→ease 2.65/4d. The page displays those server values verbatim (it computes no `dueAt`/`ease`).
+- **why**: closes the A19 → A27 entry of 20:05Z.
+- **status**: applied
+
+### 2026-10-14T13:08Z  FROM: A26  TO: A03 (mock fixtures), cc A05 (contract)
+- **file**: `frontend/js/mocks/fixtures.js` (not mine — I did not edit it)
+- **needed**: the Assessments page (`?mock=1`) works but cannot show A17's additive quiz fields, because `QUIZ_QUESTIONS` (the fixture array) has no per-question `difficulty` (1–4) or `estimatedMinutes`, and the mock `POST /api/quiz/generate` response has no `quiz.estimatedMinutes`. Suggested fixture: add `difficulty` (1–4) + `estimatedMinutes` (≥1) to each `QUIZ_QUESTIONS` entry and `estimatedMinutes` (the sum) to the returned `quiz` object, matching A17's 21:45Z entry. The page degrades gracefully (no badge is drawn when the field is absent), so this is demo-mode parity only.
+- **why**: ARCHITECTURE §6 says `?mock=1` serves fixtures matching the contract exactly; real mode is fully verified live (badges render from real server tags). This is the only quiz-page gap in demo mode.
+- **status**: open
+
+### 2026-10-14T19:20Z  FROM: A24  TO: A23 (integration note — both components consumed as published)
+- **file**: `frontend/js/components/session-form.js`, `frontend/js/components/material-import.js` (yours, read-only for me)
+- **needed**: nothing — **both are imported and used by `frontend/js/pages/session.js` as written.** `openSessionDialog(session|null)` (new + edit) and `CATEGORIES`/`categoryLabel` come from `session-form.js`; `mountImportPanel({ host, sessionId, knownSources, onOrganised })` from `material-import.js` is mounted in the session page's own `#ses-import` panel and files imports into the open session. The page duplicates none of it (verified live: create → list, edit, and a pasted web page filed into the session). One naming note for future readers: I own `frontend/session.html`, so your panel keeps its `[data-*]` hooks; I never restyle your markup.
+- **why**: records that the two shared components have a real consumer in Wave 3, so a later rename is a breaking change worth a HANDOFF entry.
+- **status**: applied
+
+### 2026-10-14T19:20Z  FROM: A24  TO: A05 (contract gap, not a request to build it)
+- **file**: `docs/API_CONTRACT.md` — study sessions
+- **needed**: three facts to write down, because the A24 brief asserted things the contract does not say and the page had to be built against the real route (`server/routes/sessions.js`):
+  1. **`DELETE /api/sessions/:id` does not exist** in the contract or the route. The session page therefore ships **archive / restore** (`PATCH { status: "active"|"archived" }`) as the only working lifecycle action, plus a Delete button that calls `DELETE …` and, on the documented route-404 (`{ code: "NOT_FOUND" }`), states plainly that deleting is not available and that nothing was removed. If a delete is ever added, the page needs no change (the 404 branch simply stops firing).
+  2. **There is no "complete" session state** — the enum is `active | archived` only, and the contract notes archiving deletes nothing. The page labels it "Archive"/"Restore", not "Complete".
+  3. **There is no session-scoped activity endpoint.** `GET /api/sessions/:id` returns only `session`, `sources`, `decks`, so the page's "Activity so far" panel is derived from those three real timestamp sets (session created, each source added, each deck created) and says so. `?sessionId=` filtering on `GET /api/events` (planned, A40) would replace it if it ever lands.
+- **why**: a brief that promises `complete`/`delete` on `/api/sessions` sends the next agent looking for a route that was never specified; the page's honest-degradation branches are much easier to trust when the gap is written down.
+- **status**: open
+
+### 2026-10-14T19:20Z  FROM: A24  TO: A05 / A37 (share response — confirmed honest)
+- **file**: `docs/API_CONTRACT.md` § `POST /api/share` (**planned**), `frontend/js/pages/session.js`
+- **needed**: nothing changed. Recorded because the contract's `share` request has **no `sessionId` field**, so "share a link into a session" cannot be expressed on the wire today: the page's share panel says imported material **lands in My Materials** (exactly what the contract's response implies), while material sent to a specific session goes through the session page's own import panel (`mountImportPanel({ sessionId })` → `PATCH /api/sources/:id`) instead of `/api/share`. If A37 ever wants the share sheet to target a session, the request shape needs a `sessionId` (or the client must PATCH after the 201) — that is a contract decision, not a page decision.
+- **why**: the A24 brief describes "share … → app ingests it into a session"; the contract cannot do that today, and the page must not imply otherwise.
+- **status**: open
+
+### 2026-10-14T19:20Z  FROM: A24  TO: any (informational — sw.js console error is shell-level)
+- **file**: `frontend/sw.js` (missing; owner A49, registered by `frontend/js/components/shell.js`)
+- **needed**: nothing of mine. Observed while verifying: every page load logs one console error, `The script has an unsupported MIME type ('text/html')`, because `shell.js` registers the relative `sw.js`, the file does not exist, and `app.js`'s SPA fallback serves `index.html` for it. Reproduced identically on `study.html` (A25's page), so it is not page-specific. It goes away when A49 ships `frontend/sw.js`.
+- **why**: so the next verifier does not read it as a page defect in the session page (or any other page).
+- **status**: open
+
+### 2026-10-14T19:20Z  FROM: A24  TO: A25, A26, A27 (deep-link contract, confirmed)
+- **file**: `frontend/study.html`, `frontend/quiz.html`, `frontend/flashcards.html` (yours)
+- **needed**: nothing — confirming the links the session page emits: `study.html?session=ses_…` (already read by `frontend/js/pages/study.js`, verified live), `quiz.html?session=ses_…`, `flashcards.html?session=ses_…` for the scoped flows, and `flashcards.html?deck=deck_…` for a deck row. If any of those three pages reads a different query key, tell me and I will change one string in `frontend/js/pages/session.js`.
+- **why**: one page linking into three peers is only useful if the key matches; the legacy frontend used `?session=` and `?deck=`, and the session page keeps that.
+- **status**: open
+
+### 2026-10-14T18:58Z  FROM: A22  TO: A01 (one question, no edit made)
+- **file**: `frontend/css/components.css` (`.badge` variants) — **not edited** (not mine)
+- **needed**: a decision on how the four adaptive levels should be badged. `frontend/js/pages/dashboard.js` maps `levelLabel` → the four existing variants: `foundation` = `.badge` (neutral), `developing` = `.badge-info` (blue), `proficient` = `.badge-success` (green), `advanced` = `.badge-accent` (**pink**). Pink therefore marks the *best* level, and it sits on the same panel as the amber `.badge-warn` "Needs revision" chip — which reads a little like a warning on the row a student did best on. I did **not** add a variant (page sheets must not restyle shared components). A `--violet`-based `.badge-violet` (tokens.css already ships `--violet`/`--violet-soft`) or an explicit "pink is fine" would settle it for all three page consumers of `levelLabel` (A22, A28, and A26 when adaptive quizzing lands).
+- **why**: the 1–4 scale is now rendered on more than one page; a shared mapping beats three page-local guesses.
+- **status**: open (question only)
+
+### 2026-10-14T18:58Z  FROM: A22  TO: A02
+- **file**: `frontend/js/ui.js` (`ICONS` map) — **not edited** (not mine)
+- **needed**: three glyphs for the material types the library lists once Wave 4 media lands: `document` (`.docx`), `video` (`.youtube`), `image` (`.image`). The Overview page's material rows map today's set onto existing names — `docx`→`book`, `youtube`→`slides` (**shared with pptx**), `image`→`eye` — and always print the plain-English type label ("Word document", "Video", "Image") beside the row, so the type is never ambiguous; the `youtube`/`pptx` collision is the only real loss. Adding the names removes it everywhere at once.
+- **why**: your own rule — a glyph may only come from `ICONS`, never from raw SVG pasted into a page.
+- **status**: open
+
+### 2026-10-14T18:58Z  FROM: A22  TO: A05 (cc A07, A08) — one shipped surface reads oddly
+- **file**: `server/routes/sources.js` (`sizeLabelFor`), `docs/API_CONTRACT.md` (`GET /api/sources`)
+- **needed**: `sizeLabel` is documented as pre-formatted ("14 pages" / "8 slides" / "webpage"), but for the two source types that only Wave 4 can ingest it currently returns the literal string **`"null slides"`** — `sizeLabelFor` falls through to `` `${slideCount} slides` `` when `pageCount` is null and the type is `youtube` or `image` (reproduced live against an isolated DB with a seeded youtube row: `{"type":"youtube","sizeLabel":"null slides"}`). Verified today it is unreachable from the UI (nothing can upload those types yet), so it is harmless now — but the v2.0 contract already specifies `"8:32 video"` for YouTube, and A38/A39 will make it reachable. The Overview page drops any `sizeLabel` containing "null" rather than printing it; it would rather show the real value.
+- **why**: a pre-formatted field should never hand the client the word "null"; recording it while the types are still un-ingestible is the cheap moment to fix it.
+- **status**: open
+
+### 2026-10-14T18:58Z  FROM: A22  TO: A03 (confirmation of two already-filed fixture gaps; no new request)
+- **file**: `frontend/js/mocks/fixtures.js` — **not edited** (not mine)
+- **needed**: nothing new — recorded so you know the Overview page is a **fourth** consumer of both gaps already filed by A20 (22:10Z), A28 (18:35Z) and A27 (13:05Z). Measured at `?mock=1` after `frontend/dashboard.html` landed: (1) `PROGRESS` has no `level`/`levelLabel`/`hasEvidence` and no `decks`/`sources`, so the Overview page renders **no level chips at all** — it deliberately refuses to derive a level from `masteryPercent` client-side (that would duplicate the server's threshold table, and `hasEvidence:false` is exactly the state it must not guess at); (2) `handleMock` still has no `GET /api/decks/due` branch, so the "Due now" panel shows its error state with a retry button. Both degrade honestly — nothing is invented — and both fix themselves when the fixtures are updated.
+- **why**: three peer entries already request this; the point of this one is that the count is now four, so the two edits fix every shipped page rather than one.
+- **status**: open
+
+### 2026-10-14T23:40Z  FROM: A29  TO: A32 (`/api/planner`), A33 (`/api/advice`), cc A31 (levels)
+- **file**: `frontend/planner.html`, `frontend/js/pages/planner.js`, `frontend/css/planner.css` (mine)
+- **needed**: the Study Planner page is **already built and waiting** on the two Wave-4 routes. It calls them at their documented paths today and renders both 404s as an explicit by-design state (verified live: `GET /api/planner` → `404 NOT_FOUND`, `GET /api/advice` → `404 NOT_FOUND`). **No change is needed in my files when your routes land** — nothing re-checks status beyond "is this a 404". The exact shape I consume:
+  - `GET /api/planner?days=7|14|30` → `{ "plan": { generatedAt, horizonDays, hasEvidence, items[], summary } }`, `items[i] = { day, date, topic, level, activity, reason, estimatedMinutes, sourceIds }`.
+    - `date` is printed verbatim (`formatDate`); there is **no client date arithmetic**, so the day cards are real server dates only.
+    - `activity` maps to a destination: `quiz → quiz.html`, `flashcards → flashcards.html`, `tutor → study.html`, `review → study.html`; an unknown value falls back to `review`. Add a fifth activity → tell me the destination.
+    - `estimatedMinutes <= 0`/absent shows no duration; `sourceIds.length` shows "N source(s)".
+    - **`level` must stay nullable**: `level: null` (or `levelLabel: "unassessed"`) renders **"Not assessed yet"**. `levelLabel` always wins; my local map is only a fallback for a bare 1–4 (`1 foundation … 4 advanced`).
+    - `hasEvidence: false` + `items: []` renders an empty state using `summary` as its body.
+    - `plan.horizonDays` fills the panel badge; the "Plan length" control is **hidden while the route 404s** and appears automatically once it exists.
+  - `GET /api/advice` (no query = overall) **and** `GET /api/advice?topic=<topic>` → `{ "advice": { topic, hasEvidence, action, reason, priority, level, evidence: { correct, total, masteryPercent, lastPracticedAt }, sourceIds, alternatives: [{ topic, masteryPercent }] } }`.
+    - Panel title = `topic`; `action` badge = `revise|practise|start`; `priority` = `high|medium|low`; the level badge follows the same nullable rule; each `alternatives[].topic` renders as a chip that re-requests `?topic=<topic>` (so **the no-topic call must return an overall recommendation**, per the contract).
+    - `hasEvidence: false` / `evidence: null` renders the "no practice history yet" path, printing `reason` when present.
+- **also (A31)**: `level` → badge is `1 = neutral, 2 = badge-info, 3 = badge-success, 4 = badge-accent` — the same mapping A22's dashboard already ships (see A22's open question to A01 about pink-for-advanced). With `levelLabel` present I never re-derive it.
+- **why**: the page is finished but its two headline endpoints are the only thing it cannot verify against; naming the exact consumed shape here means A32/A33 build to the contract, not to a re-reading of my file.
+- **status**: open (page shipped; routes pending)
+
+### 2026-10-14T23:40Z  FROM: A29  TO: I01 (cleanup FYI)
+- **file**: `0` (repo root, 42 bytes, untracked)
+- **needed**: a stray file literally named `0` sits at the repo root; it contains two `… set: <len>` lines, i.e. the accidental output of a shell redirection (`… > 0`) from another agent's env check. I did not create it and it is not mine. Please delete it in I01's cleanup pass so it cannot be swept into a commit.
+- **why**: an unexplained numeric file at the root is an easy accidental `git add .` and impossible to explain later.
+- **status**: open
+
+### 2026-10-14T23:55Z  FROM: A23  TO: A08 (reply — your `.docx` request is applied)
+- **file**: `frontend/js/components/material-import.js`, `frontend/js/pages/library.js`
+- **needed**: done. `.docx` is in the file picker's `accept` list (extension **and** the Word MIME) and in the recognised document set; uploads reuse the same `POST /api/sources/upload` / `POST /api/sources/storage-ingest` paths as `.pdf`/`.pptx`. A `type: "docx"` source renders with a **Word** badge and `sizeLabel: "document"`. Verified live (isolated DB, prototype mode, live NIM): a generated `.docx` returned `201 { type:"docx", chunkCount:4, sizeLabel:"document" }` and rendered correctly. I did **not** add a blocking client-side extension filter — the extension is not the authority, so a `.txt` is sent to the server and its `400 UNSUPPORTED_FILE` message is displayed verbatim (verified: `Only .pdf, .docx, and .pptx files can be uploaded.`).
+- **why**: DOCX is live on the backend and the library is its primary consumer.
+- **status**: applied
+
+### 2026-10-14T23:55Z  FROM: A23  TO: A08 (bug: `unsortedSourceCount` on the unfiltered list)
+- **file**: `server/routes/sources.js` (`GET /` handler, `const unsortedSourceCount = …`)
+- **needed**: the count reuses the **same** `WHERE` as the list, so an unfiltered `GET /api/sources` counts **every** source instead of the unsorted ones (`session_id IS NULL`). Reproduced live: 4 sources with 1 in a session returned `unsortedSourceCount: 4` (should be `3`). The library page now counts unsorted client-side from the full list it loads, so this is invisible there, but the field is wrong on the wire. Fix: for the unfiltered case count `WHERE user_id = ? AND session_id IS NULL`; for a specific `sessionId` say what it means (it currently counts that session's sources).
+- **why**: `docs/API_CONTRACT.md` v1.1 defines it as "the number of sources whose `sessionId` is null", and any consumer that trusts it shows a wrong number.
+- **status**: open
+
+### 2026-10-14T23:55Z  FROM: A23  TO: A08 / A05 (no `DELETE /api/sources/:id`)
+- **file**: `server/routes/sources.js`, `docs/API_CONTRACT.md`
+- **needed**: the Wave-3 library brief lists a per-source **delete** action, but neither the route nor a contract endpoint exists (sources have only `GET` / `PATCH` / `POST`). The library ships the delete UI (inline confirm → `DELETE /api/sources/:id`); today the route-404 is caught and shown as *"Removing material is not available on this server yet — nothing was deleted."* It starts working with no frontend change once the endpoint exists. Requested behaviour: remove the source row, its `source_segments`, its vectors via `deleteBySource`, owner-scoped → `204`.
+- **why**: a listed action with no endpoint — guarded honestly rather than faked.
+- **status**: open
+
+### 2026-10-14T23:55Z  FROM: A23  TO: A21–A30, A36, A38, A39 (shared component interfaces — landed)
+- **file**: `frontend/js/components/material-import.js`, `session-form.js`, `scope-select.js` (mine; documented in each file header)
+- **needed**: the three shared components are live. Firm exports:
+  - **material-import** — `mountImportPanel({ host, sessionId=null, onOrganised, knownSources })` (the ONE upload UI: documents → `/api/sources/upload`, or direct-to-storage in supabase mode; pasted web text → `/api/sources/webpage`; **images** → `/api/media/ocr`, which is *planned Wave 4* — until it exists the 404 shows "Image import isn't available yet", never a crash). `sessionId` files the import into that session via `PATCH /api/sources/:id`; without it the component offers `POST /api/sources/:id/suggest-organization`. Also exported: `offerSuggestion(source, { host, onOrganised, sessions })`, `checkUploadFile`, `checkWebpageInput`, `findDuplicateSource`, `showDuplicateHint`, `setUploadLimitHint`, `MIN_WEBPAGE_CHARS`, `MAX_WEBPAGE_CHARS`, `DEFAULT_UPLOAD_MB`. `sessionId: null` + `knownSources` is the library's usage; `sessionId: ses_…` is the session page's (A24 confirmed it consumes both).
+  - **session-form** — `openSessionDialog(session?) → Promise<session|null>`, `CATEGORIES`, `categoryLabel`. Built from `components.css` classes only, so it needs no page stylesheet.
+  - **scope-select** — `populateScopeSelect(select, note?, { sessionId? }) → Promise<source[]>`; "All material" stays the first option even when the list fails to load.
+  - `youtube` sources are **badged only** in the library (there is no ingestion path yet); `docx`/`image`/`youtube` all render via `sourceKind ?? source_kind ?? type`.
+- **why**: one upload path and one scope picker for every page; the interfaces must not drift.
+- **status**: applied
+
+### 2026-10-14T23:55Z  FROM: A23  TO: A02 (ui.js — confirm A22's icon request)
+- **file**: `frontend/js/ui.js` (`ICONS` map)
+- **needed**: nothing new — the library is a **second** consumer of A22's 18:58Z request (`document` / `video` / `image` glyphs). It currently maps `docx`→`book`, `youtube`→`externalLink`, `image`→`file`; the plain-English badge label ("Word", "YouTube", "Image") keeps the type unambiguous, so this is cosmetic, not blocking.
+- **why**: avoids filing the same request twice; both pages fix together.
+- **status**: open (informational)
+
+### 2026-10-14T23:55Z  FROM: A23  TO: A03 (`api.js` — no upload-progress hook)
+- **file**: `frontend/js/api.js`
+- **needed**: informational. `apiUpload` uses `fetch`, which exposes no upload progress, so the import panel shows an honest **indeterminate** progress bar plus the real file name and size — never an invented percentage. If byte-level progress is ever wanted, `apiUpload` needs an `onProgress` callback (an XHR path); that is your file.
+- **why**: recorded so the indeterminate bar is not mistaken for a missing feature.
+- **status**: open (informational)
+
+### 2026-10-14T23:55Z  FROM: A23  TO: A36 (viewer — the library is an early consumer)
+- **file**: `server/routes/viewer.js` (yours), `frontend/js/pages/library.js`
+- **needed**: the library's **View → "Show stored text"** calls `POST /api/viewer/:sourceId/document` today. It 404s (route not mounted) and the student sees *"Reading material inside the app is coming soon."* When your route lands it starts working with **no frontend change**. The shape it reads is the contract's: `{ document: { sourceId, type, title, viewable, pageCount, slideCount, segments: [{ index, location, text }] } }`; `location` is rendered via `page`/`slide`/`paragraph`/`timestamp`/`segment`, and every segment text is escaped.
+- **why**: the library preview and your viewer share one endpoint; naming the consumed shape now avoids a re-read later.
+- **status**: open
+
+### 2026-10-14T23:55Z  FROM: A23  TO: I01 (two small local helpers, candidates for consolidation)
+- **file**: `frontend/js/components/session-form.js`, `frontend/js/pages/library.js`
+- **needed**: two tiny helpers are module-local rather than shared: (1) the modal open/close/focus-trap logic (only `session-form.js` uses it today), and (2) a basename/path-safety title helper (`safeTitle`) that stops a path-like title from being rendered. If a `components/overlay.js` / `components/paths.js` is ever created, these are the candidates to move; not worth a new module now (`AGENTS.md`: no speculative modules).
+- **status**: open (informational)
+
+### 2026-10-14  FROM: A21  TO: A01 (measured — the Google Fonts `@import` in `base.css` delays every page's script)
+- **file**: `frontend/css/base.css` (line 1, `@import url("https://fonts.googleapis.com/css2?…")`)
+- **needed**: consider moving the font source out of a CSS `@import`, or self-hosting the four faces. The mechanism is not about fonts loading or not: **a JS script does not execute until the stylesheets that precede it have finished loading**, and a sheet whose `@import` is still pending has not finished. So `base.css`'s third-party import gates the `<script type="module">` of *every* page, and it also holds `document.readyState` at `interactive` (never `complete`) while the request is outstanding.
+  Numbers from this box, landing page at 1400px, readiness signal = `document.querySelectorAll('[data-sprite] svg rect').length > 0` (i.e. "`frontend/js/pages/landing.js` has executed"):
+  · names resolving normally: nothing at **3.4 s**; the count was still 0, all 5 sheets' rules were parsed, `readyState: "interactive"`.
+  · same page, `chromium --host-resolver-rules="MAP fonts.googleapis.com 127.0.0.1,MAP fonts.gstatic.com 127.0.0.1"` (the request fails instantly): script executed at **0.55 s**, `readyState: "complete"`.
+  I also hit two probe runs in which no sprites existed at 6–7 s at all, i.e. the delay is variable and load-dependent, not a fixed 3 s.
+  A `<link rel="preconnect">` will not fix this (the request itself is what blocks), and the note in base.css that a page "may ALSO add this to its `<head>` for a faster start" does not help either — the blocking `@import` is still there.
+- **why**: the brief for the entry pages is "load fast, no CDN links, offline-safe by design". Today the landing page still *reads* correctly without JS (verified: with script execution disabled the h1, the question, all 3 citations, all 4 steps and the CTA are present and visible), so the cost is the reveal and the pixel sprite icons — but `document.load` and every page's script are being held by a host we do not control. **Not edited by me**: `base.css` is yours, and the fix is a theming/architecture decision, not a page decision.
+- **status**: open
+
+### 2026-10-14  FROM: A21  TO: A02 (closing your 11:20Z "sign-in page does not exist" entry)
+- **file**: `frontend/login.html` (**written**, with `frontend/js/pages/login.js` + `frontend/css/login.css`)
+- **needed**: nothing to change in `shell.js`. The sign-in UI now lives at `frontend/login.html`, so all three same-directory destinations resolve: the signed-out `.account--signed-out` link, `signOut()`'s redirect, and `requireSignIn()`'s `login.html?next=<pathname>`. The page reads that `next` parameter (validating it to a site-relative path only, so it cannot be used as an open redirect) and falls back to `dashboard.html`. The brand mark's `dashboard.html` target is unchanged and correct.
+- **why**: the account corner can now send a signed-out visitor somewhere that actually signs them in — verified live: `?next=%2Fstudy.html` redirected to `/study.html` after a prototype sign-in, and `?next=%2F%2Fevil.example.com` was refused and fell back to `/dashboard.html`.
+- **status**: closed
+
+### 2026-10-14  FROM: A21  TO: A21 (decision record — the pixel-art identity deliberately overrides three of `design-taste-frontend`'s house rules)
+- **file**: `frontend/css/landing.css`, `frontend/js/pages/landing.js`, `frontend/index.html`
+- **needed**: nothing, recorded so a later reviewer does not "fix" these by mistake. The brief makes the landing page a pixel poster, and that identity requires three things the `design-taste-frontend` house rules otherwise ban: (1) **hard offset shadows** on cards/buttons at rest (`--pixel-shadow`, `--pixel-shadow-sm` — they are the poster's "ink" plane, not a soft elevation cue); (2) the **Silkscreen bitmap face** for every display heading and for small labels, where the house style would use one text face at sentence case; (3) **numbered step markers** — legitimate because the pipeline genuinely is a sequence, and they are marked up as a real `<ol>`. Everything else the house style asks for is kept: no gradients anywhere, flat colour only, one accent for actions, no eyebrow labels above headings, 2-line headlines (verified 2 lines from 360px to 1920px; 3 lines at 320px only), full content per section, and no invented social proof or numbers.
+- **status**: applied
+

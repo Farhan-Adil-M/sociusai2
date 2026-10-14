@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Study Planner — Socius AI</title>
+  <meta name="description" content="Your study plan: the topics you are still working on, ranked from your own quiz results, with a recommendation for what to revise next.">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/planner.css">
+</head>
+<body>
+  <!-- The shell (sidebar, topbar, health pill) is mounted into this host by
+       js/pages/planner.js — never repeat its markup here. -->
+  <div id="app-shell"></div>
+
+  <main>
+    <div class="container">
+      <header class="page-head">
+        <div class="stack-2">
+          <p class="eyebrow">Study planner</p>
+          <h1>Your study plan</h1>
+          <p>A week-at-a-glance built from the topics you are still working on, using your own
+             quiz results. Nothing here is guessed — if there is not enough evidence yet, this
+             page says so instead of filling the gap with a made-up schedule.</p>
+        </div>
+        <!-- Plan-length control + "Plan again". Filled by js/pages/planner.js. -->
+        <div class="planner-actions" id="planner-actions"></div>
+      </header>
+
+      <div class="sidebar-layout">
+        <!-- Main column: the plan, then what to work on, then recent activity. -->
+        <div class="stack-5" id="planner-main"></div>
+        <!-- Aside: the recommendation and its reasoning, then quick ways in. -->
+        <aside class="sidebar stack-5" id="planner-aside" aria-label="Recommended next steps"></aside>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/planner.js"></script>
+</body>
+</html>

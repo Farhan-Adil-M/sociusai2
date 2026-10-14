@@ -1,0 +1,96 @@
+/* =============================================================================
+   Socius2 — Study Sessions page
+   Loaded LAST, after tokens.css → base.css → components.css → shell.css.
+
+   Only what is unique to session.html lives here. Everything else COMPOSES the
+   shared vocabulary from components.css (`.panel`, `.row-list`, `.row-item`,
+   `.btn*`, `.badge`, `.chip`, `.empty-state`, `.alert`, `.toolbar`, `.sidebar-layout`,
+   `.stack-*`, `.cluster-*`); no shared class is redefined in this file.
+   ========================================================================== */
+
+/* ===========================================================================
+   1 · LIST VIEW
+   ======================================================================== */
+
+/* The spinner row a panel shows while a section loads. */
+.ses-loading { padding: var(--s5); }
+
+/* Category / sort selects inside the shared .toolbar. The select is width:100%,
+   so the wrapper is what gives it a sane width that can wrap on a phone. */
+.ses-filter { min-width: 10rem; }
+
+/* One session. `.row-item` supplies the row layout; the row may wrap so the
+   actions drop below the title on a narrow screen instead of squeezing it. */
+.ses-row { flex-wrap: wrap; }
+
+/* The title is a link out of the row; keep it reading as a title, not a link,
+   and show the affordance on hover/focus only. */
+.ses-row-link {
+  color: var(--fg-strong);
+  text-decoration: none;
+}
+.ses-row-link:hover,
+.ses-row-link:focus-visible {
+  color: var(--blue-ink);
+  text-decoration: underline;
+}
+
+.ses-row-tags { margin-top: var(--s1); }
+
+/* Pushed to the trailing end of the row. */
+.ses-row-actions { margin-inline-start: auto; }
+
+@media (max-width: 560px) {
+  .ses-row-actions {
+    width: 100%;
+    margin-inline-start: 0;
+  }
+}
+
+/* ===========================================================================
+   2 · DETAIL VIEW
+   ======================================================================== */
+
+/* The band that links into the flows a session drives (tutor, quiz, cards).
+   Blue-tinted on purpose: it is the primary action of the whole page. */
+.ses-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  border: 1px solid var(--blue-line);
+  border-radius: var(--r-lg);
+  background: var(--blue-soft);
+}
+.ses-band-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--blue-ink);
+}
+.ses-band-note {
+  color: var(--blue-ink);
+}
+
+/* Activity timeline: this session's own records, newest first. */
+.ses-timeline { display: flex; flex-direction: column; }
+.ses-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding-block: var(--s3);
+}
+.ses-timeline-item + .ses-timeline-item { border-top: 1px solid var(--border); }
+.ses-timeline-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+.ses-timeline-text {
+  overflow-wrap: anywhere;
+  font-size: var(--fs-sm);
+  color: var(--fg-strong);
+}

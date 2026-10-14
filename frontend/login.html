@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — Socius AI</title>
+  <meta name="description" content="Sign in to Socius AI to reach your study material, tutor, quizzes and flashcards.">
+
+  <!-- CSS layer order is mandatory (docs/ARCHITECTURE.md §5). This page renders
+       no app chrome, but shell.css is included so the order holds exactly and no
+       shared class can arrive unstyled. -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/login.css">
+</head>
+
+<!-- No `pixel` class here, on purpose: sign-in is part of the app interior and
+     keeps the calm academic palette. The arcade identity belongs to the landing
+     page only. -->
+<body class="auth-page">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="auth-header">
+    <div class="auth-header-inner">
+      <a class="auth-brand" href="index.html" aria-label="Socius AI home">
+        <svg class="auth-brand-mark" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" focusable="false" fill="currentColor">
+          <path d="M12 3 1.5 8.2 12 13.4l8.2-4.1v5.5h1.8V8.2L12 3Z"/>
+          <path d="M5 11.6v4.2c0 1.8 3.1 3.2 7 3.2s7-1.4 7-3.2v-4.2l-7 3.5-7-3.5Z"/>
+        </svg>
+        <span class="auth-brand-name">Socius AI</span>
+      </a>
+      <a class="auth-header-link" href="index.html">Back to the home page</a>
+    </div>
+  </header>
+
+  <main id="main" class="auth-main" tabindex="-1">
+    <section class="card auth-card stack-5" aria-labelledby="authTitle">
+      <div class="auth-intro stack-2">
+        <h1 class="auth-title" id="authTitle">Sign in</h1>
+        <!-- Replaced by login.js with a line that matches the mode. The static
+             text has to be true either way, because this is what someone with
+             JavaScript off reads. -->
+        <p class="auth-sub" id="authSub">Sign in to reach your study material, AI tutor, quizzes and flashcards.</p>
+      </div>
+
+      <!-- Mode-dependent progress. login.js fills this with a spinner at load
+           and empties it once the mode is known, so a slow server shows
+           "checking", not an empty card. With JavaScript off it stays empty. -->
+      <div class="auth-status" id="authStatus" role="status" hidden></div>
+
+      <!-- Which mode this copy of Socius AI is running in. login.js shows the
+           matching one once it knows; both stay hidden until then, so the page
+           never claims a mode it has not confirmed. The <noscript> note below
+           explains the JavaScript-off case. -->
+      <div class="alert alert-warn" id="protoBanner" role="note" hidden>
+        <span class="auth-alert-text">
+          <strong>Prototype sign-in — this is not a real account.</strong>
+          No sign-in service is connected here, so nothing you type is checked or
+          sent anywhere.
+        </span>
+      </div>
+
+      <div class="alert alert-info" id="realBanner" role="note" hidden>
+        <span class="auth-alert-text">
+          <strong>Account sign-in.</strong>
+          This is a real account on the Socius AI service.
+        </span>
+      </div>
+
+      <!-- The reason auth.js sent the visitor here (expired session, sign-out). -->
+      <div class="alert alert-warn" id="noticeBanner" role="alert" hidden>
+        <span class="auth-alert-text" id="noticeText"></span>
+      </div>
+
+      <!-- Success / information: account created, check your email. -->
+      <div class="alert alert-info" id="infoBanner" role="status" hidden>
+        <span class="auth-alert-text" id="infoText"></span>
+      </div>
+
+      <div class="alert alert-danger" id="formError" role="alert" hidden>
+        <span class="auth-alert-text" id="formErrorText"></span>
+      </div>
+
+      <noscript>
+        <div class="alert alert-warn" role="note">
+          <span class="auth-alert-text">
+            <strong>Signing in needs JavaScript.</strong>
+            This page checks the sign-in service and remembers your session in the
+            browser, which plain HTML cannot do. Turn JavaScript on and reload.
+          </span>
+        </div>
+      </noscript>
+
+      <!-- novalidate: we run our own checks so every message is in our own words
+           and lands next to its field. The server validates too — this is a
+           convenience, never the guarantee.
+
+           The form ships hidden, and its submit button ships disabled; login.js
+           reveals it only once it knows which mode the page is in, and enables
+           the button at the same moment. That is what keeps the markup honest:
+           the page never shows a form it cannot submit, a JavaScript-off visitor
+           gets the <noscript> note above instead of a dead form, and a native
+           submit could never post an unusable request or put a password in the
+           URL. -->
+      <form class="auth-form stack-4" id="loginForm" novalidate hidden>
+        <div class="field" id="nameField">
+          <label class="label" for="signinName">Your name</label>
+          <input class="input" id="signinName" name="name" type="text" autocomplete="name"
+                 placeholder="Alex Morgan" aria-describedby="nameHelp nameError" maxlength="60">
+          <p class="help" id="nameHelp">Shown in the app. It is not an account and not a password.</p>
+          <p class="error" id="nameError" hidden></p>
+        </div>
+
+        <div class="field" id="emailField">
+          <label class="label" for="signinEmail">Email address</label>
+          <input class="input" id="signinEmail" name="email" type="email" autocomplete="username"
+                 inputmode="email" placeholder="you@university.edu" aria-describedby="emailError"
+                 maxlength="254">
+          <p class="error" id="emailError" hidden></p>
+        </div>
+
+        <div class="field" id="passwordField">
+          <label class="label" for="signinPassword">Password</label>
+          <div class="input-group">
+            <input class="input" id="signinPassword" name="password" type="password"
+                   autocomplete="current-password" aria-describedby="passwordError" maxlength="200">
+            <button class="input-group-btn" id="togglePassword" type="button" data-toggle-password
+                    aria-label="Show password" aria-pressed="false"></button>
+          </div>
+          <p class="error" id="passwordError" hidden></p>
+        </div>
+
+        <button class="btn btn-primary btn-lg btn-block" id="submitBtn" type="submit" disabled>Sign in</button>
+      </form>
+
+      <p class="auth-switch" id="signupFoot" hidden>
+        <span id="signupPrompt">New to Socius AI?</span>
+        <button class="auth-link" id="signupToggle" type="button">Create an account</button>
+      </p>
+
+      <p class="auth-foot" id="authFoot"></p>
+    </section>
+  </main>
+
+  <footer class="auth-footer">
+    <div class="auth-footer-inner">
+      <span>Socius AI</span>
+      <p class="auth-footer-note">
+        A study companion, not a substitute for your course material. Answers are
+        AI-generated and can be wrong.
+      </p>
+    </div>
+  </footer>
+
+  <!-- Sign-in is inherently interactive: it reads the auth mode from the server
+       and keeps the session in the browser. It is deferred, so nothing blocks
+       the first paint. No CDN, no build step. -->
+  <script type="module" src="js/pages/login.js"></script>
+</body>
+</html>

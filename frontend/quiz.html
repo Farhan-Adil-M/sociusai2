@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Assessments — Socius AI</title>
+  <meta name="description" content="Generate a source-grounded assessment from your own material, answer it one question at a time, and see your score, explanations and mastery change.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/quiz.css">
+</head>
+<body>
+  <!-- The shell (sidebar, topbar, health pill) is mounted here by shell.js.
+       This page owns only the content inside <main>. -->
+  <div id="app-shell"></div>
+
+  <main id="main">
+    <div class="container stack-6">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Assessments</p>
+          <h1>Practice assessments</h1>
+          <p>Questions are written from your material. Nothing is scored until you submit — the answer key never reaches this page before then.</p>
+        </div>
+      </header>
+
+      <!-- Generator: filled in by js/pages/quiz.js. -->
+      <section class="panel qz-setup" aria-labelledby="qz-setup-title">
+        <div class="panel-head">
+          <h2 class="panel-title" id="qz-setup-title">New assessment</h2>
+          <span class="qz-scope muted text-xs" data-scope-note></span>
+        </div>
+        <form class="panel-body qz-form" data-generate-form novalidate>
+          <div class="field">
+            <label class="label" for="qz-topic">Topic</label>
+            <input class="input" id="qz-topic" name="topic" type="text" autocomplete="off"
+                   placeholder="e.g. Photosynthesis" maxlength="80" required
+                   aria-describedby="qz-topic-help qz-topic-error">
+            <p class="help" id="qz-topic-help">A topic your material covers. Every question is written from it.</p>
+            <p class="error" id="qz-topic-error" role="alert" hidden></p>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label class="label" for="qz-count">Questions</label>
+              <select class="select" id="qz-count" name="questionCount">
+                <option value="3">3 questions</option>
+                <option value="5" selected>5 questions</option>
+                <option value="8">8 questions</option>
+                <option value="10">10 questions</option>
+              </select>
+            </div>
+
+            <fieldset class="field">
+              <legend class="label">Question difficulty</legend>
+              <div class="cluster cluster-3 qz-difficulty-choices">
+                <label class="radio"><input type="radio" name="difficulty" value="" checked><span>Let the learner model choose</span></label>
+                <label class="radio"><input type="radio" name="difficulty" value="easy"><span>Easy</span></label>
+                <label class="radio"><input type="radio" name="difficulty" value="medium"><span>Medium</span></label>
+                <label class="radio"><input type="radio" name="difficulty" value="hard"><span>Hard</span></label>
+              </div>
+              <p class="help">An intent, not a guarantee — each question also carries its own level 1–4.</p>
+            </fieldset>
+          </div>
+
+          <div class="qz-form-actions">
+            <button type="submit" class="btn btn-primary btn-lg" data-generate>Start assessment</button>
+            <p class="help">Writing questions usually takes a few seconds.</p>
+          </div>
+        </form>
+      </section>
+
+      <!-- The active question, results, loading or a state message. -->
+      <section class="qz-stage" data-stage aria-label="Assessment"></section>
+
+      <p class="sr-only" aria-live="polite" data-live></p>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/quiz.js"></script>
+</body>
+</html>

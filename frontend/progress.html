@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Learning progress — Socius AI</title>
+  <meta name="description" content="Your per-topic mastery, quiz accuracy and recent study activity, measured from your own graded quizzes.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- The five sheets in the agreed order (docs/ARCHITECTURE.md §5):
+       tokens → base → components → shell → this page. -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/progress.css">
+</head>
+<body>
+  <!-- One shell: shell.js mounts the sidebar, topbar, health pill and mobile
+       drawer into #app-shell and moves this <main> into the content column. -->
+  <div id="app-shell"></div>
+
+  <main id="main">
+    <div class="container">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Learning progress</p>
+          <h1>Your learning progress</h1>
+          <p>
+            How you are doing on each topic, measured from your own graded quizzes.
+            Nothing here is guessed — a topic stays “not assessed yet” until you answer
+            questions about it.
+          </p>
+        </div>
+        <div class="page-head-actions">
+          <button type="button" class="btn btn-secondary btn-sm" data-refresh>
+            Refresh
+          </button>
+        </div>
+      </header>
+
+      <!-- Everything below the header is rendered by js/pages/progress.js, so a
+           loading, empty or failed state can replace it as one unit. -->
+      <div id="progress-root" class="stack-6" aria-busy="true"></div>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/progress.js"></script>
+</body>
+</html>

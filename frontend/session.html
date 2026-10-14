@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Study sessions — Socius AI</title>
+  <meta name="description" content="Create study sessions, see exactly what each one contains, and study, quiz or revise from it.">
+  <!-- Load order is fixed: tokens → base → components → shell → this page. -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/session.css">
+</head>
+<body>
+  <!-- The shell (sidebar, topbar, health pill) is mounted into this host by
+       js/pages/session.js — never repeat its markup here. -->
+  <div id="app-shell"></div>
+
+  <main>
+    <div class="container stack-5">
+      <!-- The page header is the ONE <h1>; js/pages/session.js rewrites its
+           text for the list or for one session. -->
+      <header class="stack-3">
+        <p class="eyebrow" data-ses-eyebrow hidden></p>
+        <h1 data-ses-title>Study sessions</h1>
+        <p class="muted" data-ses-sub>Group your material into sessions, then study, quiz or
+           revise from one place.</p>
+        <div class="cluster-2" data-ses-badges hidden></div>
+        <div class="cluster-2" data-ses-actions hidden></div>
+      </header>
+
+      <!-- Page-level problem messages (a failed archive, a missing endpoint). -->
+      <div data-ses-notice hidden></div>
+
+      <!-- VIEW 1 · the session list. -->
+      <section class="stack-4" data-ses-list aria-label="Your study sessions">
+        <div class="toolbar">
+          <div class="input-group toolbar-search">
+            <label class="sr-only" for="ses-search">Search your sessions</label>
+            <input class="input" id="ses-search" type="search" autocomplete="off"
+                   placeholder="Search sessions…">
+            <span class="input-group-btn" data-search-icon aria-hidden="true"></span>
+          </div>
+          <div class="ses-filter">
+            <label class="sr-only" for="ses-category">Filter by category</label>
+            <!-- The category options are added by js/pages/session.js from the
+                 shared enum in components/session-form.js, so it exists once. -->
+            <select class="select" id="ses-category">
+              <option value="">All categories</option>
+            </select>
+          </div>
+          <div class="ses-filter">
+            <label class="sr-only" for="ses-sort">Sort sessions</label>
+            <select class="select" id="ses-sort">
+              <option value="recent">Recently updated</option>
+              <option value="active">Most active</option>
+              <option value="alpha">Title A–Z</option>
+            </select>
+          </div>
+          <label class="checkbox toolbar-actions">
+            <input type="checkbox" id="ses-archived"> Show archived
+          </label>
+        </div>
+
+        <p class="text-sm muted" data-ses-unsorted hidden></p>
+
+        <div class="panel">
+          <div data-ses-list-body>
+            <span class="cluster-2 ses-loading" role="status">
+              <span class="spinner" aria-hidden="true"></span>
+              <span class="text-sm muted">Loading your sessions…</span>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 2 · one session's workspace. -->
+      <section class="sidebar-layout" data-ses-detail hidden aria-label="This session">
+        <div class="stack-5">
+          <div data-ses-tools></div>
+
+          <!-- Add material to THIS session. The panel body is filled by A23's
+               shared components/material-import.js, which files every import
+               into this session. -->
+          <section class="panel" id="ses-import" data-ses-import hidden
+                   aria-labelledby="ses-import-title">
+            <div class="panel-head">
+              <h2 class="panel-title" id="ses-import-title">Add material to this session</h2>
+              <button type="button" class="btn btn-ghost btn-icon" data-action="import-toggle"
+                      aria-label="Close the add-material panel">
+                <span data-import-close-icon></span>
+              </button>
+            </div>
+            <div class="panel-body" data-ses-import-body></div>
+          </section>
+
+          <div data-ses-scope></div>
+          <div data-ses-decks></div>
+        </div>
+        <aside class="sidebar">
+          <div data-ses-activity></div>
+        </aside>
+      </section>
+
+      <!-- Share-to-app: a deep link from another app into this one. The endpoint
+           is planned, so js/pages/session.js degrades honestly if it is absent. -->
+      <section class="panel" id="ses-share" data-ses-share hidden aria-labelledby="ses-share-title">
+        <div class="panel-head">
+          <h2 class="panel-title" id="ses-share-title">Share a link into Socius</h2>
+          <button type="button" class="btn btn-ghost btn-icon" data-action="share-toggle"
+                  aria-label="Close the share panel">
+            <span data-share-close-icon></span>
+          </button>
+        </div>
+        <form data-share-form novalidate>
+          <div class="panel-body stack-4">
+            <p class="help">Paste a link to a PowerPoint, Word document or web page from
+               another app. Socius imports the text so the tutor, quizzes and flashcards can
+               use it. Imported material lands in <strong>My Materials</strong>.</p>
+
+            <div class="field">
+              <label class="label" for="ses-share-url">Link</label>
+              <input class="input" id="ses-share-url" name="url" type="text" inputmode="url"
+                     autocomplete="off" placeholder="https://example.org/lesson1.pptx"
+                     aria-describedby="ses-share-url-help">
+              <p class="help" id="ses-share-url-help">Only http:// and https:// links can be
+                 imported.</p>
+            </div>
+
+            <div class="field">
+              <label class="label" for="ses-share-title-input">
+                Title <span class="muted">(optional)</span>
+              </label>
+              <input class="input" id="ses-share-title-input" name="title" maxlength="160"
+                     placeholder="e.g. Lesson 1 slides">
+            </div>
+
+            <div class="field">
+              <label class="label" for="ses-share-text">
+                Page text <span class="muted">(optional)</span>
+              </label>
+              <textarea class="textarea" id="ses-share-text" name="text" rows="3"
+                        placeholder="If the link cannot be opened by the server, paste the page text here."
+                        aria-describedby="ses-share-text-help"></textarea>
+              <p class="help" id="ses-share-text-help">When provided, use 50–200,000
+                 characters.</p>
+            </div>
+
+            <p class="error" data-share-error role="alert" hidden></p>
+          </div>
+          <div class="panel-foot">
+            <button type="submit" class="btn btn-primary" data-share-submit>Import link</button>
+          </div>
+        </form>
+        <div data-share-status></div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/session.js"></script>
+</body>
+</html>

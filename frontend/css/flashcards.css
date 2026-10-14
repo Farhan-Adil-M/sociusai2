@@ -1,0 +1,185 @@
+/* =============================================================================
+   Socius2 — Flashcards page
+   Page-specific composition only. It composes the shared vocabulary from
+   components.css (.card .panel .badge .alert .progress .field .btn .kbd
+   .citations .empty-state …) and never restyles it.
+
+   Load order: tokens.css → base.css → components.css → shell.css → flashcards.css
+   Every colour/space/radius/shadow/motion value is a var(--token).
+   ========================================================================== */
+
+/* ===========================================================================
+   1 · TODAY'S REVIEW CALLOUT
+   `.fc-due`  = cards are waiting; `.fc-alldone` = nothing is due (both are
+   role="status" so a screen reader hears the state change).
+   ======================================================================== */
+
+.fc-due,
+.fc-alldone {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+
+.fc-due { border-color: var(--blue-line); background: var(--blue-soft); }
+.fc-alldone { border-color: var(--green-line); background: var(--green-soft); }
+
+.fc-due__icon,
+.fc-alldone__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+.fc-due__icon { color: var(--blue); }
+.fc-alldone__icon { color: var(--green); }
+
+.fc-due__text { flex: 1; min-width: 0; }
+.fc-due__title { font-weight: var(--fw-semibold); color: var(--blue-ink); }
+.fc-alldone__title { font-weight: var(--fw-semibold); color: var(--green); }
+
+@media (max-width: 560px) {
+  .fc-due,
+  .fc-alldone { flex-wrap: wrap; }
+  .fc-due .btn { width: 100%; }
+}
+
+/* ===========================================================================
+   2 · DECK TILES
+   A tile is .card + .deck-card; the grid comes from `.grid.grid-auto`.
+   ======================================================================== */
+
+.deck-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  height: 100%;
+}
+
+.deck-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.deck-card__title {
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: var(--lh-snug);
+}
+
+.deck-card__actions { margin-top: auto; padding-top: var(--s1); }
+
+/* ===========================================================================
+   3 · REVIEW STAGE
+   ======================================================================== */
+
+.study__head { align-items: center; }
+.study__meta { min-width: 0; }
+.study__title { font-size: var(--fs-md); }
+.study__actions { display: flex; }
+
+/* The card itself: a calm, roomy surface that reads like paper. */
+.flashcard {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xl);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-1);
+}
+
+/* Font size lives on the page's own wrapper so the shared `.prose` is untouched. */
+.flashcard__side {
+  padding: var(--s6);
+  font-size: var(--fs-md);
+  line-height: var(--lh-snug);
+}
+
+.flashcard__answer {
+  padding: 0 var(--s6) var(--s6);
+  font-size: var(--fs-md);
+  line-height: var(--lh-snug);
+}
+/* The answer block is a programmatic focus target (so screen readers read the
+   reveal), not an interactive control — no ring on it. */
+.flashcard__answer:focus,
+.flashcard__answer:focus-visible { outline: none; }
+.flashcard__answer .citations { margin-top: var(--s4); }
+
+/* ===========================================================================
+   4 · FOUR GRADES
+   `.grade-btn` composes `.btn`; each variant only re-tints it. Declared after
+   components.css (this sheet loads last), so the tints win over `.btn`.
+   ======================================================================== */
+
+.grade-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s3);
+  width: 100%;
+}
+
+.grade-btn {
+  flex-direction: column;
+  gap: var(--s1);
+  min-height: 68px;
+  padding: var(--s2) var(--s3);
+  text-align: center;
+  line-height: var(--lh-snug);
+}
+.grade-btn__label { font-weight: var(--fw-semibold); }
+.grade-btn__hint { font-size: var(--fs-xs); font-weight: var(--fw-regular); opacity: 0.85; }
+.grade-btn .kbd { background: var(--bg-surface); color: var(--fg-strong); }
+
+.grade-again { border-color: var(--red-line); background: var(--red-soft); color: var(--red); }
+.grade-again:hover { border-color: var(--red); background: color-mix(in srgb, var(--red-soft) 78%, var(--red)); }
+
+.grade-hard { border-color: var(--amber-line); background: var(--amber-soft); color: var(--amber); }
+.grade-hard:hover { border-color: var(--amber); background: color-mix(in srgb, var(--amber-soft) 78%, var(--amber)); }
+
+.grade-good { border-color: var(--blue-line); background: var(--blue-soft); color: var(--blue-ink); }
+.grade-good:hover { border-color: var(--blue); background: color-mix(in srgb, var(--blue-soft) 78%, var(--blue)); }
+
+.grade-easy { border-color: var(--green-line); background: var(--green-soft); color: var(--green); }
+.grade-easy:hover { border-color: var(--green); background: color-mix(in srgb, var(--green-soft) 78%, var(--green)); }
+
+/* ===========================================================================
+   5 · THE SCHEDULE THE SERVER RETURNED
+   Shown after every grade — the student should see WHEN the card comes back.
+   ======================================================================== */
+
+.study__schedule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+}
+
+/* ===========================================================================
+   6 · COMPLETION
+   ======================================================================== */
+
+.study-done__icon { border-color: var(--green-line); background: var(--green-soft); color: var(--green); }
+
+/* ===========================================================================
+   7 · NARROW SCREENS
+   ======================================================================== */
+
+@media (max-width: 620px) {
+  .grade-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flashcard__side { padding: var(--s5); }
+  .flashcard__answer { padding: 0 var(--s5) var(--s5); }
+  .study__actions .btn-lg { width: 100%; }
+}

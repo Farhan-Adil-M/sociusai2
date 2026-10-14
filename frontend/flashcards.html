@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flashcards — Socius AI</title>
+  <meta name="description" content="Decks written from your own material, reviewed with spaced repetition. The server decides when each card is due next.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/flashcards.css">
+</head>
+<body>
+  <div id="app-shell"></div>
+
+  <main id="flashcards-main">
+    <div class="container stack stack-5">
+      <div class="page-head">
+        <div>
+          <p class="eyebrow">Flashcards</p>
+          <h1>Flashcards</h1>
+          <p>Decks written from your own material. Each review is scheduled by the server, so a card comes back right before you would forget it.</p>
+        </div>
+        <div class="page-head-actions" data-head-actions>
+          <button type="button" class="btn btn-secondary" data-new-deck aria-expanded="false" aria-controls="create-panel">
+            Create a deck
+          </button>
+        </div>
+      </div>
+
+      <div data-due-banner></div>
+
+      <section class="panel" id="create-panel" data-create-panel hidden aria-labelledby="create-title">
+        <div class="panel-head">
+          <h2 class="panel-title" id="create-title">Create a deck</h2>
+          <button type="button" class="btn btn-ghost btn-icon" data-close-create aria-label="Close the deck form">
+            <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>
+          </button>
+        </div>
+        <form class="panel-body stack stack-4" data-create-form novalidate>
+          <div class="field-row">
+            <div class="field">
+              <label class="label" for="fc-topic">Topic</label>
+              <input class="input" id="fc-topic" name="topic" type="text" maxlength="80" autocomplete="off"
+                     placeholder="e.g. Photosynthesis" required aria-describedby="fc-topic-help">
+              <p class="help" id="fc-topic-help">A short phrase the AI writes cards about, grounded in your own material.</p>
+            </div>
+            <div class="field">
+              <label class="label" for="fc-count">Cards</label>
+              <select class="select" id="fc-count">
+                <option value="3">3 cards</option>
+                <option value="5">5 cards</option>
+                <option value="8" selected>8 cards</option>
+                <option value="10">10 cards</option>
+                <option value="12">12 cards</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="label" for="fc-session">Material</label>
+              <select class="select" id="fc-session" data-session-select>
+                <option value="">All my material</option>
+              </select>
+              <p class="help">Limit the cards to one study session, or use everything you have added.</p>
+            </div>
+          </div>
+          <p class="error" data-create-error hidden role="alert"></p>
+          <div class="cluster cluster-2">
+            <button type="submit" class="btn btn-primary" data-create-submit>Generate deck</button>
+            <button type="button" class="btn btn-ghost" data-close-create>Cancel</button>
+          </div>
+        </form>
+      </section>
+
+      <section data-study-region hidden aria-label="Review session"></section>
+
+      <div class="stack stack-4" data-library>
+        <form class="toolbar" role="search" data-toolbar>
+          <div class="toolbar-search input-group">
+            <label class="sr-only" for="fc-search">Search decks</label>
+            <input class="input" id="fc-search" type="search" placeholder="Search decks…" autocomplete="off">
+          </div>
+          <div class="toolbar-actions">
+            <label class="sr-only" for="fc-sort">Sort decks</label>
+            <select class="select" id="fc-sort" data-sort>
+              <option value="recent">Recently created</option>
+              <option value="active">Recently reviewed</option>
+              <option value="alpha">Topic A–Z</option>
+            </select>
+          </div>
+        </form>
+        <div data-deck-list></div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/flashcards.js"></script>
+</body>
+</html>

@@ -1,0 +1,208 @@
+/* =============================================================================
+   Socius2 — Learning Progress page (frontend/progress.html)
+   OWNER: A28. Page-specific composition only.
+
+   Load order: tokens → base → components → shell → THIS FILE.
+   It may extend the shared vocabulary (docs/ARCHITECTURE.md §5); it never
+   redefines it. Every class below is new to this page. Colour, space, radius
+   and type come from var(--token); raw px only for widths/heights.
+
+   The `level-chip--*` classes are modifiers that ride ON components.css
+   `.badge` (`.badge.level-chip--2`). They are a deliberate extension of the
+   badge's surface in the same way `.badge-success` is — a page does not get to
+   restyle a shared component, but it may name its own variant of it.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------- stats */
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* `a.card` already sets `display: block`, colour and hover; the flex column is
+   restated so a linked card lays out exactly like a plain one. */
+a.stat-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font-family: var(--font-sans);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------- level chip ramp */
+
+/* Grey → blue → violet → green: one step per level, so the ramp reads as
+   progression without calling the lowest level "bad". */
+.badge.level-chip--0 {
+  border-style: dashed;
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+}
+
+.badge.level-chip--1 {
+  border-color: var(--border-strong);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+}
+
+.badge.level-chip--2 {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+
+.badge.level-chip--3 {
+  border-color: color-mix(in srgb, var(--violet) 30%, transparent);
+  background: var(--violet-soft);
+  color: var(--violet);
+}
+
+.badge.level-chip--4 {
+  border-color: var(--green-line);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+/* --------------------------------------------------------------- topic rows */
+
+/* A topic row carries a title, badges, a bar and a meta line, so it is taller
+   than the single-line rows `.row-item` was drawn for: align to the top. */
+.topic-row {
+  align-items: flex-start;
+}
+
+.topic-row .row-main {
+  gap: var(--s2);
+  width: 100%;
+}
+
+.topic-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.topic-row__name {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+  overflow-wrap: anywhere;
+}
+
+.topic-row__badges {
+  flex: none;
+}
+
+/* --- "not assessed yet" — its own treatment, never a 0% bar --- */
+
+.topic-row.is-unassessed {
+  background: var(--bg-sunken);
+}
+
+/* The icon chip is sunken by default; it would vanish on a sunken row. */
+.topic-row.is-unassessed .row-icon {
+  background: var(--bg-surface);
+}
+
+.topic-untracked {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+}
+
+.topic-untracked .icon {
+  margin-top: 2px;
+  color: var(--fg-subtle);
+}
+
+/* Separates the assessed block from the unassessed block inside one row list. */
+.topic-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s4) var(--s4) var(--s2);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+}
+
+.topic-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.topics-legend {
+  padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+
+/* --------------------------------------------------------------- activity */
+
+.activity-time {
+  flex: none;
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+/* The transparent note on a merged duplicate row: present, but quiet. */
+.feed-note {
+  color: var(--fg-subtle);
+}
+
+/* -------------------------------------------------------------- suggested */
+
+.suggested-next {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+}
+
+.suggested-next__row {
+  align-items: flex-start;
+  gap: var(--s4);
+}
+
+/* `--fg-muted` is tuned for a white surface and loses contrast on the tint;
+   the tint's own ink keeps both lines readable at every size. */
+.suggested-next .eyebrow {
+  color: var(--blue-ink);
+}
+
+.suggested-next .muted {
+  color: var(--ink-2);
+}
+
+.suggested-next__topic {
+  font-size: var(--fs-md);
+  color: var(--fg-strong);
+  line-height: var(--lh-snug);
+}
+
+/* --------------------------------------------------------------- responsive */
+
+@media (max-width: 480px) {
+  .topic-row__badges {
+    width: 100%;
+  }
+}

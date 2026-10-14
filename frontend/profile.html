@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your profile — Socius AI</title>
+  <meta name="description" content="Review and edit what Socius AI knows about you: how you like to be taught, your goals, subjects and interests.">
+
+  <!-- base.css imports the fonts; preconnecting starts the connection sooner.
+       No extra stylesheet is added — the browser de-duplicates the request. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- CSS layer order (docs/ARCHITECTURE.md §5): page sheet last. -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/profile.css">
+</head>
+<body>
+  <!-- The shell mounts the sidebar, topbar and health pill here. -->
+  <div id="app-shell"></div>
+
+  <main>
+    <div class="container stack stack-6" data-profile-page>
+      <div class="page-head">
+        <div>
+          <p class="eyebrow">Profile</p>
+          <h1>Your profile</h1>
+          <p>This is what the tutor reads to decide how it explains things to you. Everything
+            here is yours to review, edit or delete.</p>
+        </div>
+      </div>
+
+      <!-- Account identity first: who is signed in, and in which auth mode.
+           Rendered synchronously from auth.js, before any network read.
+           NOTE: the hook names are page-prefixed on purpose — shell.js owns
+           [data-content] on its own content slot, so a bare data-content here
+           would make the page render into (and erase) the shell's <main>. -->
+      <div data-profile-account></div>
+
+      <!-- Everything else: loading → error+retry → the preference editors. -->
+      <div class="stack stack-6" data-profile-content></div>
+
+      <!-- One polite live region for save/delete announcements. Kept outside
+           [data-profile-content] so a re-render never removes it mid-announcement. -->
+      <p class="sr-only" role="status" aria-live="polite" data-profile-live></p>
+    </div>
+  </main>
+
+  <script type="module" src="js/pages/profile.js"></script>
+</body>
+</html>

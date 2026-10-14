@@ -1,0 +1,154 @@
+/* =============================================================================
+   library.css — composition unique to "My Materials" (library.html).
+
+   Load order on the page (docs/ARCHITECTURE.md §5, mandatory):
+     tokens.css → base.css → components.css → shell.css → library.css
+
+   This sheet adds ONLY the library page's own arrangement. It reuses the
+   shared vocabulary from components.css (`.card`, `.panel`, `.row-item`,
+   `.badge`, `.chip`, `.alert`, `.progress`, `.empty-state`, `.btn`, `.input`,
+   `.select`) and never redefines one of those primitives.
+   Owner: A23.
+   ========================================================================== */
+
+/* ------------------------------------------------------------- toolbar ---- */
+
+/* Selects sit inline in the toolbar; `.select` is width:100% by default, so
+   they are given a sensible minimum and allowed to shrink on narrow screens. */
+.lib-filter {
+  width: auto;
+  min-width: 10.5rem;
+  max-width: 16rem;
+}
+
+.lib-count {
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------- list ---- */
+
+/* Each record is a wrapper around one `.row-item` plus its (optional) detail
+   panel, so the list is one `.panel` with real separators between records. */
+.lib-item {
+  background: var(--bg-surface);
+}
+.row-list > .lib-item + .lib-item {
+  border-top: 1px solid var(--border);
+}
+
+.lib-row {
+  align-items: flex-start;
+}
+
+/* Type badge · size · passages · added · session, in one wrapping meta line. */
+.lib-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.lib-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+.lib-where {
+  color: var(--fg-muted);
+}
+
+/* Row actions: keep them together, right-aligned, and none of them shrinking. */
+.lib-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s1);
+}
+
+/* ------------------------------------------------------ expanded detail ---- */
+
+.lib-detail {
+  padding: var(--s4) var(--s5) var(--s5);
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+
+.lib-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: var(--s3) var(--s5);
+}
+.lib-detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+.lib-k {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.lib-v {
+  font-size: var(--fs-sm);
+  color: var(--fg-strong);
+  overflow-wrap: anywhere;
+}
+
+.lib-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.lib-section-title {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+
+/* ------------------------------------------------- stored-text preview ---- */
+
+.lib-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  max-height: 22rem;
+  overflow-y: auto;
+  padding: var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+}
+.lib-segment {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.lib-segment .badge {
+  align-self: flex-start;
+}
+.lib-segment-text {
+  font-size: var(--fs-sm);
+  color: var(--fg-default);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------ narrow ------ */
+
+@media (max-width: 640px) {
+  .lib-row {
+    flex-wrap: wrap;
+  }
+  .lib-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .lib-detail {
+    padding-inline: var(--s4);
+  }
+}

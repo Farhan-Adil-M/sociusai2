@@ -1,0 +1,238 @@
+/* =============================================================================
+   Socius2 — AI Tutor page (study.html)
+   Page-specific composition ONLY. Everything shared (.panel, .alert, .chip,
+   .citations/.citation, .prose, .btn*, .textarea, .spinner, .empty-state) comes
+   from components.css and is reused, never restyled here.
+
+   Load order:  tokens.css → base.css → components.css → shell.css → study.css
+
+   The page is ONE chat: `.tutor` is a column of a scrolling `.tutor-transcript`
+   and a docked `.tutor-composer`. Messages are `.msg--user` (right) and
+   `.msg--assistant` (left).
+   ========================================================================== */
+
+/* Which material the tutor is searching — one honest line above the chat. */
+.tutor-scope {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--fg-muted);
+  font-size: var(--fs-sm);
+}
+.tutor-scope .icon { color: var(--fg-subtle); }
+
+/* ------------------------------------------------------------------ chat -- */
+
+.tutor {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+
+.tutor-transcript {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  min-height: min(280px, 45vh);
+  max-height: min(62vh, 560px);
+  padding: var(--s5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+}
+
+/* ---- one message ---- */
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  min-width: 0;
+}
+
+.msg--user {
+  align-self: flex-end;
+  align-items: flex-end;
+  max-width: min(100%, 60ch);
+}
+.msg--user .msg-body {
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg) var(--r-lg) var(--r-sm) var(--r-lg);
+  background: var(--bg-sunken);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg--assistant { align-self: stretch; }
+
+.msg-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.msg-avatar {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+.msg-who {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-muted);
+}
+
+.msg-eyebrow {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  color: var(--fg-muted);
+}
+
+.msg-note { font-size: var(--fs-xs); color: var(--fg-muted); }
+
+.msg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+/* ---- citations under a grounded answer ---- */
+
+.msg-citations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.msg-citations-label {
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+
+/* ---- honest abstain: distinct from an error, never an empty bubble ---- */
+
+.msg--abstain {
+  gap: var(--s4);
+  padding: var(--s4);
+  border: 1px solid var(--blue-line);
+  border-radius: var(--r-lg);
+  background: var(--blue-soft);
+}
+.msg--abstain .msg-eyebrow,
+.msg--abstain .msg-note { color: var(--blue-ink); }
+.msg--abstain .msg-body { color: var(--blue-ink); }
+.msg--abstain .msg-body :where(a) { color: var(--blue-ink); }
+
+/* ---- error: the alert block plus its retry action ---- */
+
+.msg-error-copy { min-width: 0; }
+.msg-error-copy p + p { margin-top: var(--s1); }
+
+/* ---- typing indicator while the tutor works ---- */
+
+.tutor-pending {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.tutor-pending-label {
+  font-size: var(--fs-sm);
+  color: var(--fg-muted);
+}
+.tutor-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tutor-typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--fg-subtle);
+  animation: tutor-bounce 1.2s infinite ease-in-out;
+}
+.tutor-typing i:nth-child(2) { animation-delay: 0.15s; }
+.tutor-typing i:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes tutor-bounce {
+  0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+.tutor-stream {
+  font-size: var(--fs-base);
+  color: var(--fg-default);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- starter and abstain suggestion chips ---- */
+
+.tutor-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.tutor-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* -------------------------------------------------------------- composer -- */
+
+.tutor-composer {
+  flex: none;
+  padding: var(--s4);
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.tutor-composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s3);
+}
+/* A compact 2-row composer, overriding the tall default textarea height.
+   Two specificities beat `.textarea`, so no !important is needed. */
+.tutor-composer-row .textarea {
+  min-height: 44px;
+  max-height: 160px;
+}
+
+.tutor-send {
+  flex: none;
+  min-height: 44px;
+}
+
+.tutor-composer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
+/* --------------------------------------------------------------- mobile --- */
+
+@media (max-width: 720px) {
+  .tutor-transcript {
+    min-height: min(340px, 52vh);
+    padding: var(--s4);
+  }
+  .tutor-composer-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tutor-send { width: 100%; }
+}
