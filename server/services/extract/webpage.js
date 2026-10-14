@@ -1,5 +1,12 @@
 // Webpage ingestion: the student pastes the page text together with its URL.
 // Paragraphs become segments so citations can point at a paragraph number.
+//
+// No heading hints are emitted here, deliberately: a pasted page has already
+// lost its markup, so the extractor has nothing authoritative to say about
+// structure — the `title` the client sends is the page's title, not a heading
+// for any one paragraph. The chunker's prose heading detection is therefore the
+// right (and only) tool for webpages, and it still applies: a pasted "## Cells"
+// or "3.2 Photosynthesis" line marks a heading and starts a new section.
 
 import { ApiError } from '../../middleware/errors.js';
 

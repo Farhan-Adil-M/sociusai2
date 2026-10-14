@@ -1,9 +1,19 @@
 // PowerPoint (.pptx) text extraction with slide numbers.
 // A .pptx is a zip; each slide's text lives in ppt/slides/slideN.xml inside
 // <a:t>…</a:t> runs. We read those directly — no heavyweight Office library.
+//
+// The deck's own structure statement is the title placeholder: a shape marked
+// <p:ph type="title"/> (or "ctrTitle") is the slide's title. When a slide has
+// one we hand it to the chunker as the segment's `section`, so a citation from
+// a long slide can say which slide it came from AND what that slide was about.
+// A slide with no title placeholder simply has no section.
 
 import AdmZip from 'adm-zip';
 import { ApiError } from '../../middleware/errors.js';
+
+// A section name is stored on every chunk of the slide, so cap it: a title
+// placeholder misused as a body placeholder would otherwise bloat each chunk.
+const MAX_SECTION_CHARS = 200;
 
 // Shared with extract/docx.js — both parsers read Office Open XML text runs.
 export function decodeXmlEntities(text) {
@@ -29,6 +39,17 @@ export function extractSlideText(xml) {
   return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
+/** The slide's title text, or null when the slide has no title placeholder. */
+export function extractSlideTitle(xml) {
+  const shapes = /<p:sp\b[^>]*>[\s\S]*?<\/p:sp>/g;
+  for (const shape of xml.matchAll(shapes)) {
+    if (!/<p:ph\b[^>]*\btype\s*=\s*"(?:title|ctrTitle)"/i.test(shape[0])) continue;
+    const title = extractSlideText(shape[0]);
+    if (title !== '') return title.length > MAX_SECTION_CHARS ? `${title.slice(0, MAX_SECTION_CHARS - 1).trimEnd()}…` : title;
+  }
+  return null;
+}
+
 export function extractPptx(buffer) {
   let zip;
   try {
@@ -50,8 +71,15 @@ export function extractPptx(buffer) {
 
   const segments = [];
   for (const { entry, num } of slideEntries) {
-    const text = extractSlideText(entry.getData().toString('utf8'));
-    if (text !== '') segments.push({ text, location: { slide: num } });
+    const xml = entry.getData().toString('utf8');
+    const text = extractSlideText(xml);
+    if (text === '') continue; // image-only slide: no citation value
+    const title = extractSlideTitle(xml);
+    segments.push({
+      text,
+      location: { slide: num },
+      ...(title != null ? { section: title } : {}),
+    });
   }
 
   if (segments.length === 0) {

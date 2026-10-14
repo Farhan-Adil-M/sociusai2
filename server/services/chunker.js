@@ -42,20 +42,29 @@ const KIND_PROFILES = {
  *
  * @param {Array<{text?: string, location?: object, kind?: string, section?: string}>} segments
  *   One segment per extractor unit (a PDF page, a slide, a webpage paragraph).
+ *   Two OPTIONAL extractor hints, both authoritative: `kind: 'heading'` marks a
+ *   segment that IS a heading, and `section` names the heading a segment
+ *   belongs to. When they are absent the chunker infers structure from the
+ *   text (`looksLikeHeading`), so both are purely additive.
  * @param {object} [options]
  * @param {number} [options.size]        override the profile's characters-per-chunk
  * @param {number} [options.overlap]     override the profile's repeated characters
- * @param {string} [options.sourceKind]  pdf|pptx|webpage|docx|youtube|image
+ * @param {string} [options.sourceKind]  pdf|pptx|webpage|docx|youtube|image — the
+ *                                       v8 canonical `sources.source_kind`. It
+ *                                       selects the profile, so passing it is
+ *                                       what stops a .docx being chunked with the
+ *                                       webpage profile (both cite paragraphs).
  * @param {string} [options.sourceId]    stored on every chunk so citations can
  *                                       point back at the source without the
  *                                       model ever supplying an identifier
  * @returns {Array<{text: string, location: object, chunkIndex: number, metadata: object}>}
  *   `location` and `chunkIndex` are unchanged from v1. `metadata` is additive:
  *   the citation fields stored alongside each vector (sourceId, sourceKind,
- *   section, page/slide/paragraph, charStart, charEnd, ordinal, chunkIndex).
- *   `charStart`/`charEnd` cover the chunk's OWN text inside its segment; when a
- *   chunk carries an overlap prefix from the previous chunk, that prefix sits
- *   before `charStart` in `text`. Keys that do not apply are omitted.
+ *   section, page/slide/paragraph, charStart, charEnd, ordinal, chunkIndex,
+ *   timecode for video). `charStart`/`charEnd` cover the chunk's OWN text inside
+ *   its segment; when a chunk carries an overlap prefix from the previous chunk,
+ *   that prefix sits before `charStart` in `text`. Keys that do not apply are
+ *   omitted.
  */
 export function chunkSegments(segments, options = {}) {
   const { size, overlap, sourceKind = null, sourceId = null } = options ?? {};
@@ -362,6 +371,9 @@ function overlapTail(text, overlap) {
  * One chunk. `location` and `chunkIndex` are the v1 shape; `metadata` is the
  * citation surface. Keys that do not apply are omitted rather than stored as
  * null — the vector stores (Chroma in particular) reject null metadata values.
+ *
+ * `timecode`/`timestamp` (video) are copied from the segment's location so a
+ * citation never has to parse the passage text to learn its timestamp.
  */
 function makeChunk(segment, sourceKind, sourceId, text, charStart, charEnd, section, ordinal) {
   const location = segment.location;
@@ -376,6 +388,8 @@ function makeChunk(segment, sourceKind, sourceId, text, charStart, charEnd, sect
       ...(location?.page != null ? { page: location.page } : {}),
       ...(location?.slide != null ? { slide: location.slide } : {}),
       ...(location?.paragraph != null ? { paragraph: location.paragraph } : {}),
+      ...(location?.timecode != null ? { timecode: location.timecode } : {}),
+      ...(location?.timestamp != null ? { timestamp: location.timestamp } : {}),
       charStart,
       charEnd,
       ordinal,

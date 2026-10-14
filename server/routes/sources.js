@@ -64,7 +64,9 @@ function sanitizeFilename(name) {
 // Reject a zip whose contents would unpack past the cap BEFORE extracting any
 // text, so a decompression bomb cannot exhaust memory. Throws the same
 // VALIDATION_ERROR as the extractors when the bytes are not a zip at all.
-function assertZipWithinLimits(buffer, label) {
+// Exported for `routes/share.js`, which ingests a fetched Office file through
+// the same guard (one implementation, not a copy).
+export function assertZipWithinLimits(buffer, label) {
   let zip;
   try {
     zip = new AdmZip(buffer);
@@ -136,11 +138,31 @@ function uploadSingleFile(req, res, next) {
   });
 }
 
-function sizeLabelFor(type, pageCount, slideCount) {
+// "512" seconds → "8:32", the contract's YouTube sizeLabel ("8:32 video").
+function formatDuration(seconds) {
+  const total = Math.floor(Number(seconds));
+  if (!Number.isFinite(total) || total < 0) return null;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  if (minutes < 60) return `${minutes}:${String(rest).padStart(2, '0')}`;
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+}
+
+// A pre-formatted size for the library row. Every accepted kind must land on a
+// real label: a source with no page count and no slide count (webpage, docx,
+// youtube, image) must never fall through to the "N slides" branch, which used
+// to print the literal string "null slides".
+function sizeLabelFor(type, pageCount, slideCount, durationSeconds) {
   if (type === 'webpage') return 'webpage';
   if (type === 'docx') return 'document'; // .docx has no fixed pages or slides
+  if (type === 'youtube') {
+    const duration = formatDuration(durationSeconds);
+    return duration ? `${duration} video` : 'video';
+  }
+  if (type === 'image') return 'image'; // one still image has no countable pages
   if (pageCount != null) return `${pageCount} pages`;
-  return `${slideCount} slides`;
+  if (slideCount != null) return `${slideCount} slides`;
+  return '—'; // unknown kind with no counts: an em dash, never a fake number
 }
 
 function parseSourceTags(value) {
@@ -164,9 +186,22 @@ export function sourceRowToApi(row) {
   };
 }
 
-async function persistSource(db, { type, title, url, segments, pageCount, slideCount, userId }, { embed, store, remove }) {
+/**
+ * Extract → chunk → embed → index → persist, for one source.
+ * Exported so every ingest surface (upload, storage-ingest, webpage, and
+ * `routes/share.js`'s imported document) runs this SAME pipeline rather than a
+ * private copy of it.
+ *
+ * `durationSeconds` is optional and only meaningful for video (A38); it is
+ * echoed back in the source object and is NOT stored (the `sources` table has
+ * no duration column — `media_assets.duration_seconds` holds it).
+ */
+export async function persistSource(db, { type, title, url, segments, pageCount, slideCount, durationSeconds, userId }, { embed, store, remove }) {
   const sourceId = newId('src');
-  const chunks = chunkSegments(segments);
+  // `sourceKind` is the v8 canonical kind and it SELECTS the chunker profile:
+  // without it a .docx is chunked with the webpage profile (both cite
+  // paragraphs) and every chunk loses its sourceKind in stored metadata.
+  const chunks = chunkSegments(segments, { sourceId, sourceKind: type });
   if (chunks.length === 0) {
     throw new ApiError(400, 'EMPTY_CONTENT', 'No usable text was extracted from this content.');
   }
@@ -187,14 +222,21 @@ async function persistSource(db, { type, title, url, segments, pageCount, slideC
   }
 
   const metadatas = chunks.map((c) => ({
+    // The chunker owns the citation surface: sourceKind, section, the
+    // page/slide/paragraph location, charStart/charEnd, ordinal, timecode and
+    // chunkIndex. Spreading it (not re-deriving it here) is what makes those
+    // fields reach the store — and therefore the citations every consumer
+    // builds from stored metadata only.
+    ...(c.metadata ?? {}),
+    // Identity fields are re-asserted after the spread: they come from the
+    // request, so a chunk whose kind could not be resolved still carries the
+    // source's real type instead of the chunker's 'default' profile name.
     sourceId,
+    sourceKind: type,
     type,
     title,
     chunkIndex: c.chunkIndex,
     ...(url ? { url } : {}),
-    ...(c.location?.page != null ? { page: c.location.page } : {}),
-    ...(c.location?.slide != null ? { slide: c.location.slide } : {}),
-    ...(c.location?.paragraph != null ? { paragraph: c.location.paragraph } : {}),
     // Per-user ownership on the vector side: retrieval filters by metadata
     // ownerId (Chroma) and the user_id column (sqlite fallback).
     ownerId: userId,
@@ -247,7 +289,12 @@ async function persistSource(db, { type, title, url, segments, pageCount, slideC
 
   return {
     id: sourceId, type, title, pageCount, slideCount, chunkCount: chunks.length, createdAt,
-    sizeLabel: sizeLabelFor(type, pageCount, slideCount),
+    // Video length is only known by the media routes (A38), which pass it in;
+    // it is echoed here so every source object has one shape. The `sources`
+    // table has no duration column, so a source re-read from the DB cannot
+    // report one — `media_assets.duration_seconds` (A06, v8) holds it.
+    ...(durationSeconds != null ? { durationSeconds } : {}),
+    sizeLabel: sizeLabelFor(type, pageCount, slideCount, durationSeconds),
   };
 }
 

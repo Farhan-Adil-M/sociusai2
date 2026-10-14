@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Read your material — Socius AI</title>
+  <meta name="description" content="Read the PDF, Word document or slide deck you uploaded, inside Socius AI — no download needed.">
+
+  <!-- base.css imports the fonts; preconnecting starts the connection sooner. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- CSS layer order (docs/ARCHITECTURE.md §5): the page sheet comes last. -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/viewer.css">
+</head>
+<body>
+  <!-- The shell mounts the sidebar, topbar and health pill here. -->
+  <div id="app-shell"></div>
+
+  <main>
+    <div class="container stack stack-4" data-viewer-page>
+      <nav aria-label="Breadcrumb">
+        <ul class="breadcrumb">
+          <li><a href="library.html">My Materials</a></li>
+          <li><span aria-current="page">Reading</span></li>
+        </ul>
+      </nav>
+
+      <!--
+        The reader renders here: loading → error+retry → the document.
+        The hook is page-prefixed on purpose. shell.js owns [data-content] on
+        its own content column, so a bare data-content here would make this
+        page render into (and erase) the shell's <main>.
+      -->
+      <div data-viewer-content></div>
+
+      <!--
+        One polite live region for page/section announcements. Kept outside
+        [data-viewer-content] so re-rendering the reader never removes it
+        mid-announcement (the pattern frontend/js/pages/profile.js uses).
+      -->
+      <p class="sr-only" role="status" aria-live="polite" data-viewer-live></p>
+    </div>
+  </main>
+
+  <script type="module">
+    import { mountShell } from './js/components/shell.js';
+    import { mountFileViewer } from './js/components/file-viewer.js';
+
+    // The reader is reached from My Materials, so the navigation marks that
+    // page active. A page key that matches no nav item simply shows no
+    // highlight, which is also acceptable.
+    await mountShell({ page: 'My Materials' });
+
+    mountFileViewer({
+      host: document.querySelector('[data-viewer-content]'),
+      liveRegion: document.querySelector('[data-viewer-live]'),
+      // No sourceId: mountFileViewer reads ?source= from the URL itself, which
+      // is the form viewerUrl() builds for A23's library and A24's sessions.
+    });
+  </script>
+</body>
+</html>

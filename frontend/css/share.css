@@ -1,0 +1,48 @@
+/* =============================================================================
+   css/share.css — styling for js/components/share.js (the two-way share UI).
+
+   Deliberately thin. Every control (.field, .label, .input, .textarea, .error,
+   .btn, .alert, .cluster-2, .spinner, .citations, .toast) is already defined
+   in components.css, so this sheet only owns the share component's own blocks
+   (.share-in, .share-out and their status rows) plus the page-prefixed
+   data-share-* hooks a page places. It never redefines a shared component and
+   never targets the shell's [data-content] column.
+   ============================================================================= */
+
+.share-in,
+.share-out {
+  max-width: 40rem;
+}
+
+/* The live result/status row under the IN form: real content arrives here
+   after submit (a success citation or an error alert); nothing is painted
+   before a real response, so a stale confirmation can never linger. */
+.share-in__status:empty {
+  display: none;
+}
+
+/* A share that produced a source shows the citation row flush with the alert;
+   components.css already spaces `.citations` internally. */
+.share-in__status .citations {
+  margin-top: var(--s3);
+}
+
+/* The OUT share button keeps a comfortable hit area and a visible focus ring
+   (components.css supplies the ring colour); its label is set by aria-label
+   when the visible text is only an icon. */
+.share-out__button {
+  gap: var(--s2);
+}
+
+/* Motion: the component ships no entrance/exit animation of its own. If a
+   page adds a transition on these blocks, users who ask for reduced motion
+   must not get it. This is the single guard for the whole component. */
+@media (prefers-reduced-motion: reduce) {
+  .share-in,
+  .share-in *,
+  .share-out,
+  .share-out * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

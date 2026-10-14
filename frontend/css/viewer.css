@@ -1,0 +1,196 @@
+/* =============================================================================
+   viewer.css — composition unique to the in-app reader (viewer.html).
+
+   Load order on the page (docs/ARCHITECTURE.md §5, mandatory):
+     tokens.css → base.css → components.css → shell.css → viewer.css
+
+   This sheet adds ONLY the reader's own arrangement. It reuses the shared
+   vocabulary from components.css (`.panel`, `.badge`, `.btn`, `.select`,
+   `.kbd`, `.spinner`, `.empty-state`, `.stack`, `.cluster`, `.breadcrumb`,
+   `.alert`) and never redefines one of those primitives. Colour, space, radius,
+   shadow and motion come from tokens.css; raw px is used only for the sticky
+   toolbar's offset, which is a layout measurement, not a theme value.
+
+   The focus ring is NOT redeclared here: base.css `:focus-visible` gives every
+   button, select and link its visible ring. The only addition is the section
+   container, which is focused programmatically when the reader changes page and
+   so must show a ring on plain :focus.
+   Owner: A36.
+   ========================================================================== */
+
+/* ------------------------------------------------------------- document head */
+
+.fv-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.fv-title {
+  font-size: var(--fs-2xl);
+  line-height: var(--lh-tight);
+  color: var(--fg-strong);
+  overflow-wrap: anywhere;
+}
+
+.fv-sub {
+  margin: 0;
+  color: var(--fg-muted);
+}
+
+/* ------------------------------------------------------------------ toolbar */
+
+/* Sticks under the shell's topbar. `--topbar-h` is the topbar's own height, so
+   the offset is measured, not guessed; the z-index stays BELOW the topbar's
+   (var(--z-sticky)) so the shell's chrome always paints on top. */
+.fv-bar {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: var(--z-base);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-1);
+}
+
+.fv-bar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+}
+
+/* The "Section 3 of 14" read-out. Never abbreviated: it is the reader's main
+   orientation cue and is mirrored into the live region for screen readers. */
+.fv-position {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+  white-space: nowrap;
+}
+
+.fv-hint {
+  font-size: var(--fs-sm);
+  color: var(--fg-muted);
+}
+
+/* Visible <label> text beside each control — a reader can see what the
+   dropdown does without hovering anything. */
+.fv-control {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+/* `.select` is width:100% by default; in a toolbar row it must size to content. */
+.fv-select {
+  width: auto;
+  min-width: 8rem;
+}
+
+.fv-keys {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+}
+
+/* ------------------------------------------------------------ reading surface */
+
+.fv-reading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+/* `--fv-fs` is set by the text-size control; every size is a token value. */
+.fv-reading { --fv-fs: var(--fs-base); }
+.fv-reading[data-fv-size="large"] { --fv-fs: var(--fs-md); }
+.fv-reading[data-fv-size="extra-large"] { --fv-fs: var(--fs-lg); }
+
+.fv-section {
+  padding: var(--s5) var(--s6);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-1);
+}
+
+/* Focused by the reader when the section changes (tabindex="-1", so it is
+   never in the tab order — only reachable programmatically). */
+.fv-section:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.fv-section-title {
+  padding-bottom: var(--s3);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+
+/* One comfortable measure, centred, whatever the viewport width. */
+.fv-text {
+  max-width: var(--measure);
+  margin-inline: auto;
+  padding-top: var(--s4);
+}
+
+/* `pre-wrap` keeps the line breaks the extractor found in the original page. */
+.fv-para {
+  margin: 0 0 var(--s4);
+  font-size: var(--fv-fs);
+  line-height: var(--lh-body);
+  color: var(--fg-default);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fv-para:last-child { margin-bottom: 0; }
+
+.fv-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  margin: 0;
+}
+
+.fv-note .icon { flex: none; margin-top: 2px; }
+
+/* --------------------------------------------------------------- narrow ----- */
+
+@media (max-width: 640px) {
+  .fv-bar { padding: var(--s2) var(--s3); }
+  .fv-bar-row { gap: var(--s2); }
+  .fv-position { order: -1; width: 100%; }
+  .fv-select { min-width: 0; flex: 1 1 8rem; }
+  .fv-section { padding: var(--s4); }
+}
+
+/* --------------------------------------------------------------- printing ---
+   A reading tool is also something a student prints. Drop the controls and the
+   explanatory footer, and let the sections flow without chrome. */
+
+@media print {
+  .fv-bar,
+  .fv-note {
+    display: none;
+  }
+  .fv-section {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+    break-inside: avoid-page;
+  }
+  .fv-reading { gap: var(--s6); }
+}

@@ -28,6 +28,7 @@
     "express": "5.3.0",
     "multer": "2.4.0",
     "pdf-parse": "2.4.5",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "tesseract.js": "^7.0.0"
   }
 }
