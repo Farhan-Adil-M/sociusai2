@@ -1,13 +1,13 @@
-// Quiz routes: generate (no answer key in the response) and answer (grade,
-// reveal, update learner model).
+// Quiz routes: generate (no answer key in the response) and answer (grade
+// deterministically, reveal the key, update the learner model once).
 
 import express from 'express';
 import { ApiError } from '../middleware/errors.js';
 import { requireAuth } from '../middleware/auth.js';
-import { chooseDifficulty, applyAttempt } from '../services/learner.js';
+import { chooseDifficulty, applyAttempt, updateMasteryLevel } from '../services/learner.js';
 import { generateQuiz, gradeAnswers } from '../services/quizService.js';
 import { resolveRequestScope, validateSourceIds, validateTopic } from '../services/retrieval.js';
-import { recordEvent, maybeRecordRecovery } from '../services/events.js';
+import { recordEvent, maybeRecordRecovery, recordStudyEvent } from '../services/events.js';
 import { logActivity, nowIso } from '../store/sqlite.js';
 
 const DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
@@ -26,8 +26,13 @@ export function quizRouter({ db, ai, vector, auth }) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'difficulty must be easy, medium, or hard.');
     }
     validateSourceIds(sourceIds);
+    if (sessionId !== undefined && sessionId !== null && typeof sessionId !== 'string') {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'sessionId must be a study session id string.');
+    }
 
     const userId = req.userId;
+    // Session scope and source ownership are both enforced server-side; a
+    // session the caller does not own reads as SESSION_NOT_FOUND.
     const scope = await resolveRequestScope(db, { sessionId, sourceIds: sourceIds ?? [] }, userId);
 
     // No difficulty given → the learner model chooses for this topic.
@@ -41,6 +46,16 @@ export function quizRouter({ db, ai, vector, auth }) {
     if (scope.session) {
       await db.run('UPDATE quizzes SET session_id = ? WHERE id = ? AND user_id = ?', scope.session.id, quiz.id, userId);
     }
+    // Study history (A09's `recordStudyEvent`): generating a quiz is something
+    // that HAPPENED, not evidence of knowing — it goes to `activity`, never to
+    // `learning_events`. Emitted here at the route so the emit site is visible.
+    await recordStudyEvent(db, {
+      type: 'quiz_generated',
+      topic: quiz.topic,
+      detail: `Generated ${quiz.questions.length} question${quiz.questions.length === 1 ? '' : 's'} (${chosenDifficulty})`,
+      sessionId: scope.session?.id ?? null,
+      userId,
+    });
     res.status(201).json({
       quiz,
       ...(quiz.weakEvidence ? { weakEvidence: true } : {}),
@@ -65,6 +80,7 @@ export function quizRouter({ db, ai, vector, auth }) {
       return res.status(409).json({ error: { code: 'QUIZ_ALREADY_ANSWERED', message: 'This quiz was already submitted.' }, result });
     }
 
+    // Deterministic grading — string comparison against the stored key, no AI.
     const questions = await db.all('SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY idx', quizId);
     const { correct, total, perQuestion } = gradeAnswers(questions, req.body?.answers ?? []);
     const percent = Math.round((correct / total) * 100);
@@ -130,6 +146,27 @@ export function quizRouter({ db, ai, vector, auth }) {
       { sql: 'UPDATE quizzes SET answered_at = ? WHERE id = ? AND user_id = ?', args: [now, quizId, userId] },
     ], 'write');
     await logActivity(db, 'quiz', quiz.topic, `${correct}/${total} correct (${percent}%)`, quiz.session_id, userId);
+
+    // Study history (A09): the answered row sits next to the `quiz_result`
+    // evidence above. It is history, not evidence, so mastery never reads it.
+    await recordStudyEvent(db, {
+      type: 'quiz_answered',
+      topic: topicKey,
+      detail: `${correct}/${total} correct (${percent}%)`,
+      sessionId: quiz.session_id ?? null,
+      userId,
+    });
+
+    // Deterministic mastery → level 1-4 inference (A18's learner.js). It reads
+    // the stored questions' `difficulty` tags, so this is the one place the
+    // tagging from /generate feeds the learner model. Recomputes from stored
+    // evidence, so a throw here must NOT turn a graded 200 into a 500: the next
+    // graded attempt recomputes the same value from the same rows (self-healing).
+    try {
+      await updateMasteryLevel(db, { userId, topic: topicKey });
+    } catch (err) {
+      console.error(`[quiz] level update failed for user ${userId} topic "${topicKey}":`, err?.message ?? err);
+    }
 
     res.json({ result });
   });

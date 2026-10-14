@@ -1,15 +1,26 @@
-// Assessment: generate source-grounded MCQs, keep the answer key server-side,
-// grade deterministically (string comparison, no AI), update the learner model.
+// Assessment: generate source-grounded MCQs from the student's OWN material,
+// tag every question with a difficulty level 1-4, keep the answer key
+// server-side, and let the deterministic learner model update afterwards.
+//
+// Determinism boundary (AGENTS.md): GENERATION is a model call, SCORING is not.
+// Grading lives in server/services/grading.js (A18) and is re-exported here so
+// the quiz routes and the tests keep a single import site. Nothing in the
+// scoring path ever asks a model "is this right?" — it compares strings.
 
 import { chatCompletion } from './nimChat.js';
 import { retrieve, toCitation, hitScore } from './retrieval.js';
-import { applyAttempt } from './learner.js';
 import { wrapPassages, UNTRUSTED_RULE } from './prompts.js';
+import { isRepeatedQuestion } from './events.js';
+import { LEVELS } from './learner.js';
+import { CHOICE_IDS, gradeAnswers } from './grading.js';
 import { config } from '../config.js';
 import { ApiError } from '../middleware/errors.js';
 import { newId, nowIso } from '../store/sqlite.js';
 
-const CHOICE_IDS = ['a', 'b', 'c', 'd'];
+// Scoring is A18's module (the single source of truth), but every caller has
+// always imported it from here — tests/grading.test.js pins that import site.
+export { gradeAnswers };
+
 const MAX_ATTEMPTS = 2; // bounded retries when the model returns unusable JSON
 
 // ---------- pure helpers (exported for tests) ----------
@@ -27,8 +38,51 @@ export function parseJsonLoose(text) {
   }
 }
 
+// ---------- difficulty tagging, level 1-4 (deterministic fallback) ----------
+//
+// docs/API_CONTRACT.md v2.0 fixes the 1-4 scale and its practice-difficulty
+// mapping in one table; learner.js already owns those numbers (LEVELS), so we
+// read them from there instead of restating "1-2 → easy, 3 → medium, 4 → hard".
+//
+// Tagging has two parts, deliberately:
+//   * the MODEL may tag each question 1-4 — the content itself knows whether
+//     the item is recall or application; and
+//   * the fallback is DETERMINISTIC — an untagged (or invalid) question gets the
+//     single level the target practice difficulty maps to. The same quiz
+//     request therefore always produces a valid, repeatable tag set, whatever
+//     the model returns.
+//
+// The level scale itself is A18/A31 territory (mastery → level, level → item).
+// This file only stamps the stored `quiz_questions.difficulty` column.
+const LEVEL_NUMBERS = [1, 2, 3, 4];
+
+/** The lowest level whose contract practice difficulty is `difficulty`. */
+function defaultLevel(difficulty) {
+  return LEVEL_NUMBERS.find((level) => LEVELS[level].difficulty === difficulty) ?? 3;
+}
+
+/** The model's 1-4 tag when it is a real level, else the deterministic fallback. */
+function tagLevel(difficulty, proposed) {
+  // Accept a number or a numeric string ("2"); everything else (null, a
+  // boolean, out of range, 2.5) falls back deterministically.
+  const numeric = typeof proposed === 'number' || (typeof proposed === 'string' && proposed.trim() !== '');
+  const value = numeric ? Number(proposed) : NaN;
+  return LEVEL_NUMBERS.includes(value) ? value : defaultLevel(difficulty);
+}
+
+// Deterministic reading estimate, in minutes, stored per question. A higher
+// level and a longer stem both take longer. The arithmetic is deliberately
+// simple so it can be checked by hand.
+const SECONDS_PER_LEVEL = 20;
+const SECONDS_PER_WORD = 2;
+
+function estimatedMinutesFor(text, level) {
+  const words = String(text ?? '').trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.round((level * SECONDS_PER_LEVEL + words * SECONDS_PER_WORD) / 60));
+}
+
 // Validate one raw question from the model. Returns a normalized question or null.
-export function normalizeQuestion(raw, { topic }) {
+export function normalizeQuestion(raw, { topic, difficulty = 'medium' } = {}) {
   if (!raw || typeof raw !== 'object') return null;
   const text = typeof raw.question === 'string' ? raw.question.trim() : '';
   if (text.length < 10 || text.length > 400) return null;
@@ -46,54 +100,19 @@ export function normalizeQuestion(raw, { topic }) {
     ? raw.explanation.trim().slice(0, 500)
     : `The correct answer is "${choices[answerIndex]}".`;
 
+  const level = tagLevel(difficulty, raw.difficulty);
+
   return {
     topic: topic.trim(),
     text: text.slice(0, 400),
     choices: CHOICE_IDS.map((id, i) => ({ id, text: choices[i] })),
     correctChoiceId: CHOICE_IDS[answerIndex],
     explanation,
+    level,
+    estimatedMinutes: estimatedMinutesFor(text, level),
     // Only passage indexes the model may reference; invalid ones are dropped later.
     cite: Array.isArray(raw.cite) ? raw.cite.filter((n) => Number.isInteger(n) && n >= 1) : [],
   };
-}
-
-export function gradeAnswers(questionRows, answers) {
-  if (!Array.isArray(answers) || answers.length === 0) {
-    throw new ApiError(400, 'VALIDATION_ERROR', 'Submit an "answers" array with one entry per question.');
-  }
-
-  // Validate every submission before grading anything.
-  const seen = new Set();
-  for (const a of answers) {
-    if (!a || !Number.isInteger(a.index) || a.index < 0 || a.index >= questionRows.length) {
-      throw new ApiError(400, 'VALIDATION_ERROR', 'Each answer needs a valid question "index".');
-    }
-    if (seen.has(a.index)) {
-      throw new ApiError(400, 'VALIDATION_ERROR', `Question ${a.index} was answered more than once.`);
-    }
-    seen.add(a.index);
-    if (a.choiceId !== null && !CHOICE_IDS.includes(a.choiceId)) {
-      throw new ApiError(400, 'VALIDATION_ERROR', `Answer for question ${a.index} must be one of a, b, c, d or null.`);
-    }
-  }
-
-  let correct = 0;
-  const perQuestion = questionRows.map((q) => {
-    const submitted = answers.find((a) => a.index === q.idx);
-    const yourChoiceId = submitted && submitted.choiceId !== null ? submitted.choiceId : null;
-    const isCorrect = yourChoiceId === q.correct_choice_id;
-    if (isCorrect) correct += 1;
-    return {
-      index: q.idx,
-      yourChoiceId,
-      correctChoiceId: q.correct_choice_id,
-      correct: isCorrect,
-      explanation: q.explanation,
-      citations: JSON.parse(q.citations_json),
-    };
-  });
-
-  return { correct, total: questionRows.length, perQuestion };
 }
 
 function citationsForQuestion(hits, citeIndexes) {
@@ -109,89 +128,163 @@ function citationsForQuestion(hits, citeIndexes) {
 
 // Exported for studyAdvice (tutor "important questions" intent) — the quiz
 // generator and the tutor reuse the exact same batch generation logic.
-export async function generateQuestionBatch({ topic, difficulty, count, evidence }, chat) {
+export async function generateQuestionBatch({ topic, difficulty, count, evidence, avoid = [] }, chat) {
   const systemPrompt = [
     'You write multiple-choice quiz questions strictly from the passages provided.',
     `Topic: ${topic}. Difficulty: ${difficulty}.`,
     UNTRUSTED_RULE,
     'Return ONLY a JSON object, no other text, in exactly this shape:',
-    '{"questions":[{"question":"...","choices":["...","...","...","..."],"answer":"the exact correct choice text","explanation":"1-3 sentences explaining why","cite":[1,2]}]}',
+    '{"questions":[{"question":"...","choices":["...","...","...","..."],"answer":"the exact correct choice text","explanation":"1-3 sentences explaining why","difficulty":2,"cite":[1,2]}]}',
     'Rules: exactly 4 unique choices; "answer" must match one choice exactly; "cite" lists passage numbers that support the question (1-based); every question must be answerable from the passages alone.',
+    '"difficulty" is that ONE question\'s level as an integer 1-4 (1 = foundation/recall, 2 = developing, 3 = proficient/application, 4 = advanced/analysis). Omit it rather than guessing wildly.',
   ].join('\n');
+
+  // Previously asked questions (stored, model-written text) travel in the USER
+  // message — never the system prompt, which must stay free of everything but
+  // trusted server-built instructions.
+  const avoidBlock = avoid.length > 0
+    ? `\n\nDo NOT repeat or paraphrase these questions the student has already seen:\n${avoid.map((text) => `- ${text}`).join('\n')}`
+    : '';
 
   const content = await chat([
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: `Passages:\n\n${evidence}\n\nWrite ${count} question${count === 1 ? '' : 's'}.` },
+    { role: 'user', content: `Passages:\n\n${evidence}\n\nWrite ${count} question${count === 1 ? '' : 's'}.${avoidBlock}` },
   ], { model: config.nimAssessModel, maxTokens: 2000 });
 
   const parsed = parseJsonLoose(content);
   if (!parsed || !Array.isArray(parsed.questions)) return [];
   return parsed.questions
-    .map((raw) => normalizeQuestion(raw, { topic }))
+    .map((raw) => normalizeQuestion(raw, { topic, difficulty }))
     .filter(Boolean);
 }
 
 /**
  * Run batch generation with bounded retries until `count` valid, pairwise
- * distinct (case-insensitive) questions are collected (or attempts run out).
+ * distinct questions are collected (or attempts run out).
  * Shared by generateQuiz and studyAdvice.importantQuestions so retry and
  * de-duplication semantics stay identical in both paths. May throw — the chat
  * call's failure is never swallowed into a fake result.
+ *
+ * Anti-repeat, in three layers:
+ *  1. within one batch   — exact text and near-duplicates are always dropped;
+ *  2. back-to-back quizzes — `recent` (the previous quiz's questions on the
+ *     same topic) is passed to the model as "do not repeat these" AND enforced
+ *     here on every attempt;
+ *  3. last resort        — on a small corpus the model may genuinely have
+ *     nothing new to say, so a final relaxed batch avoids a bare 422. Repeats
+ *     are therefore emitted only when strict avoidance produced NOTHING.
+ *
+ * `events.js#isRepeatedQuestion` is the shared near-duplicate detector (token
+ * overlap) — reused rather than re-implemented.
  */
-export async function collectQuestions({ chat, topic, difficulty, evidence, count }) {
+export async function collectQuestions({ chat, topic, difficulty, evidence, count, recent = [] }) {
   const accepted = [];
-  for (let attempt = 0; attempt < MAX_ATTEMPTS && accepted.length < count; attempt++) {
-    const batch = await generateQuestionBatch({ topic, difficulty, count, evidence }, chat);
+  const acceptedTexts = [];
+
+  const take = (batch, avoidRecent) => {
     for (const q of batch) {
       if (accepted.length >= count) break;
-      // De-duplicate by question text within the collection.
-      if (accepted.some((a) => a.text.toLowerCase() === q.text.toLowerCase())) continue;
+      // Exact text twice in one quiz, case-insensitively.
+      if (acceptedTexts.some((t) => t.toLowerCase() === q.text.toLowerCase())) continue;
+      // Near-duplicate of a question already accepted (the helper compares
+      // against its own 5-item window, so hand it the most recent five).
+      if (isRepeatedQuestion(q.text, acceptedTexts.slice(-5))) continue;
+      if (avoidRecent && isRepeatedQuestion(q.text, recent)) continue;
       accepted.push(q);
+      acceptedTexts.push(q.text);
     }
+  };
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS && accepted.length < count; attempt++) {
+    const batch = await generateQuestionBatch({ topic, difficulty, count, evidence, avoid: recent }, chat);
+    take(batch, true);
   }
+
+  if (accepted.length === 0 && recent.length > 0) {
+    const batch = await generateQuestionBatch({ topic, difficulty, count, evidence }, chat);
+    take(batch, false);
+  }
+
   return accepted;
+}
+
+// The previous quiz's question texts for this user+topic. Re-generating the
+// same quiz back-to-back is not a study activity — the questions must change.
+async function previousQuestionTexts(db, { userId, topic }) {
+  const last = await db.get(
+    'SELECT id FROM quizzes WHERE user_id = ? AND topic = ? ORDER BY created_at DESC LIMIT 1',
+    userId, topic,
+  );
+  if (!last) return [];
+  const rows = await db.all('SELECT text FROM quiz_questions WHERE quiz_id = ? ORDER BY idx LIMIT 5', last.id);
+  return rows.map((row) => row.text);
 }
 
 export async function generateQuiz({ topic, questionCount = 5, difficulty, sourceIds = [], userId = 'default' }, { db, ai, vector }) {
   const chat = ai?.chatCompletion ?? chatCompletion;
-  const hits = await retrieve(topic, { sourceIds, k: 8, minScore: 0, ai, vector, userId });
+  const quizTopic = topic.trim();
+  // The practice difficulty the learner model chose (easy|medium|hard). It is
+  // also the deterministic fallback for any question the model left untagged.
+  const practiceDifficulty = difficulty ?? 'medium';
+
+  const hits = await retrieve(quizTopic, { sourceIds, k: 8, minScore: 0, ai, vector, userId });
   const weakEvidence = hits.every((hit) => (hitScore(hit) ?? 0) < config.ragMinSimilarity);
 
   if (hits.length === 0) {
-      throw new ApiError(422, 'QUIZ_CONTENT_INVALID',
-        'Not enough indexed material on this topic yet. Upload relevant material or pick another topic.');
-    }
+    throw new ApiError(422, 'QUIZ_CONTENT_INVALID',
+      'Not enough indexed material on this topic yet. Upload relevant material or pick another topic.');
+  }
 
-    const evidence = wrapPassages(hits);
+  const evidence = wrapPassages(hits);
+  const recent = await previousQuestionTexts(db, { userId, topic: quizTopic });
 
-    const accepted = await collectQuestions({ chat, topic, difficulty, evidence, count: questionCount });
+  const accepted = await collectQuestions({
+    chat, topic: quizTopic, difficulty: practiceDifficulty, evidence, count: questionCount, recent,
+  });
 
-    if (accepted.length === 0) {
-      throw new ApiError(422, 'QUIZ_CONTENT_INVALID',
-        'The quiz model could not produce valid questions from this material. Try a broader topic or upload more material.');
-    }
+  if (accepted.length === 0) {
+    throw new ApiError(422, 'QUIZ_CONTENT_INVALID',
+      'The quiz model could not produce valid questions from this material. Try a broader topic or upload more material.');
+  }
 
-    // Persist with the answer key (server-side only).
-    const quizId = newId('quiz');
-    const createdAt = nowIso();
-    await db.batch([
-      {
-        sql: 'INSERT INTO quizzes (id, user_id, topic, difficulty, question_count, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [quizId, userId, topic.trim(), difficulty, accepted.length, createdAt],
-      },
-      ...accepted.map((q, idx) => ({
-        sql: 'INSERT INTO quiz_questions (quiz_id, idx, text, choices_json, correct_choice_id, explanation, citations_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        args: [quizId, idx, q.text, JSON.stringify(q.choices), q.correctChoiceId, q.explanation, JSON.stringify(citationsForQuestion(hits, q.cite))],
-      })),
-    ], 'write');
+  // Citations are mapped once per question (order of first reference) and used
+  // both for storage and for the response.
+  const withCitations = accepted.map((q) => ({ q, citations: citationsForQuestion(hits, q.cite) }));
 
-    // Strip the key before it ever reaches the response.
-    const responseQuestions = accepted.map((q, idx) => ({
-      index: idx,
-      text: q.text,
-      choices: q.choices,
-      citations: citationsForQuestion(hits, q.cite),
-    }));
+  // Persist with the answer key (server-side only) plus the difficulty level
+  // and reading estimate (schema v8 columns).
+  const quizId = newId('quiz');
+  const createdAt = nowIso();
+  await db.batch([
+    {
+      sql: 'INSERT INTO quizzes (id, user_id, topic, difficulty, question_count, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [quizId, userId, quizTopic, practiceDifficulty, accepted.length, createdAt],
+    },
+    ...withCitations.map(({ q, citations }, idx) => ({
+      sql: `INSERT INTO quiz_questions
+        (quiz_id, idx, text, choices_json, correct_choice_id, explanation, citations_json, difficulty, estimated_minutes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [quizId, idx, q.text, JSON.stringify(q.choices), q.correctChoiceId, q.explanation, JSON.stringify(citations), q.level, q.estimatedMinutes],
+    })),
+  ], 'write');
 
-    return { id: quizId, topic: topic.trim(), difficulty, questions: responseQuestions, weakEvidence: weakEvidence ? true : undefined };
+  // Strip the key before it ever reaches the response. Difficulty and reading
+  // estimate are additive (contract v2.0 "additive change is the norm").
+  const responseQuestions = withCitations.map(({ q, citations }, idx) => ({
+    index: idx,
+    text: q.text,
+    choices: q.choices,
+    difficulty: q.level,
+    estimatedMinutes: q.estimatedMinutes,
+    citations,
+  }));
+
+  return {
+    id: quizId,
+    topic: quizTopic,
+    difficulty: practiceDifficulty,
+    estimatedMinutes: accepted.reduce((sum, q) => sum + q.estimatedMinutes, 0),
+    questions: responseQuestions,
+    weakEvidence: weakEvidence ? true : undefined,
+  };
 }

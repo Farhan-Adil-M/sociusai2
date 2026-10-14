@@ -65,7 +65,7 @@ Everything is world-readable. Ownership controls **writes only**.
 | **A16** | `server/services/summarizer.js` **(NEW)** | **From diagram:** smart shortening — paragraph → 1–2 sentences *without losing content*. Lossless-ish abstractive compress. |
 | **A17** | `server/services/quizService.js`, `server/routes/quiz.js` | Quiz generation from material, difficulty tagging. |
 | **A18** | `server/services/grading.js` **(NEW)**, `server/services/learner.js` | Deterministic grading + **Track D#4 learner model** mastery inference. |
-| **A19** | `server/services/flashcardService.js`, `server/routes/flashcards.js`, `server/routes/decks.js` | Flashcard generation, decks, review states. |
+| **A19** | `server/services/flashcardService.js`, `server/routes/decks.js` — ⚠️ **`routes/flashcards.js` does not exist**: `flashcardsRouter` is exported from `decks.js` and mounted at `/api/flashcards` by `app.js` (P0 corrected; do not create a second router) | Flashcard generation, decks, review states. |
 | **A20** | `server/routes/learner.js`, `server/services/onboarding.js`, `server/services/studyAdvice.js` *read-only* | Progress endpoint, onboarding interview, learner profile reads. |
 
 ---

@@ -1,51 +1,33 @@
-// NVIDIA NIM chat client (OpenAI-compatible /chat/completions).
-// Every model ID and the endpoint come from .env — verified against our account.
+// NVIDIA NIM chat client — now a thin adapter over server/services/aiRouter.js.
+//
+// Every existing caller (quizService, tutorService, organizer,
+// flashcardService, onboarding, …) imports `chatCompletion` from here and keeps
+// working unchanged: it gains task routing, timeout, retry-with-backoff and
+// cross-model fallback for free, because the real work happens in the router.
+//
+// Dependency direction:  nimChat.js → aiRouter.js. That module never imports
+// this one (no cycle), and it owns the actual NIM HTTP call so there is exactly
+// one transport in the app.
+//
+// BACKEND ONLY. The browser never talks to NVIDIA NIM; this module is imported
+// by server code and an injected `ai.chatCompletion` seam only (see app.js).
+// Model ids come from config, never from here.
 
-import { config } from '../config.js';
-import { ApiError } from '../middleware/errors.js';
+import { complete } from './aiRouter.js';
 
-export async function chatCompletion(messages, { model = config.nimChatModel, temperature = 0.2, maxTokens = 1200 } = {}) {
-  let res;
-  try {
-    res = await fetch(`${config.nimBaseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${config.nimApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
-      signal: AbortSignal.timeout(config.nimTimeoutMs),
-    });
-  } catch (err) {
-    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-      throw new ApiError(504, 'NIM_TIMEOUT', 'The AI model did not respond in time. Try again.');
-    }
-    throw new ApiError(502, 'NIM_ERROR', `Could not reach the AI provider: ${err.message}`);
-  }
-
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    if (res.status === 429) throw new ApiError(502, 'NIM_ERROR', 'AI provider rate limit reached. Wait a moment and try again.');
-    if (res.status === 401 || res.status === 403) throw new ApiError(502, 'NIM_ERROR', 'AI provider rejected the API key. Check NIM_API_KEY in .env.');
-    if (res.status === 404) throw new ApiError(502, 'NIM_ERROR', `AI model "${model}" is not available on this account.`);
-    console.error(`[nim] chat ${res.status}:`, detail.slice(0, 300));
-    throw new ApiError(502, 'NIM_ERROR', 'The AI provider returned an error. Try again later.');
-  }
-
-  const data = await res.json();
-  let content = data.choices?.[0]?.message?.content;
-
-  // The reasoning-style models occasionally return empty content once in a
-  // while. Retry ONCE, then fail loudly — never invent an answer.
-  if (!content || content.trim() === '') {
-    const retry = await fetch(`${config.nimBaseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${config.nimApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
-      signal: AbortSignal.timeout(config.nimTimeoutMs),
-    }).catch(() => null);
-    content = retry?.ok ? (await retry.json())?.choices?.[0]?.message?.content : null;
-  }
-
-  if (!content || content.trim() === '') {
-    throw new ApiError(502, 'NIM_ERROR', 'The AI model returned an empty response. Try again.');
-  }
-  return content.trim();
+/**
+ * Ask a NIM chat model for a completion.
+ *
+ * @param {Array} messages OpenAI-style [{ role, content }].
+ * @param {object} [options]
+ *   - `task`        routing task (default 'tutor'); see aiRouter.TASKS.
+ *   - `model`       explicit model override — skips task routing, keeps the
+ *                   caller's own choice (existing services pass one).
+ *   - `temperature`, `maxTokens` generation controls.
+ * @returns {Promise<string>} the trimmed answer.
+ * @throws {ApiError} `NIM_TIMEOUT` (504) or `NIM_ERROR` (502) — the same codes
+ *   and user-facing messages this module has always produced.
+ */
+export async function chatCompletion(messages, { task = 'tutor', model, temperature = 0.2, maxTokens = 1200 } = {}) {
+  return complete(task, messages, { model, temperature, maxTokens });
 }

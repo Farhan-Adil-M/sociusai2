@@ -1,22 +1,38 @@
 // Conversational onboarding (v1.4 + v7 per-user rows). One call = one
-// conversational turn: the assess-model interviewer asks exactly one short
-// question per message, and anything it "learns" comes back as JSON that is
-// validated here against a strict whitelist before storage — junk,
-// hallucinated fields, sensitive data and injection attempts can never reach
-// the profile.
+// conversational turn: the interviewer asks exactly one short question per
+// message, and anything it "learns" comes back as JSON that is validated here
+// against a strict whitelist before storage — junk, hallucinated fields,
+// sensitive data and injection attempts can never reach the profile.
+//
+// Security: the student's own words are UNTRUSTED input. They reach the model
+// only as numbered <passage id="n"> blocks inside the USER message (the same
+// delimiter convention organizer.js uses for untrusted document text), the
+// system message is rendered from trusted fields only (services/prompts.js —
+// the prompt itself lives there as ONBOARDING_INTERVIEW), and an embedded
+// closing delimiter is neutralised in the rendered copy so an answer cannot
+// break out of its block. Off-list fields the model invents are dropped
+// silently: only the whitelist below is ever stored.
 //
 // Write discipline: everything for a turn is kept in memory and written in a
-// SINGLE batch at the very end, only after the model produced a usable reply.
-// A model failure therefore leaves the row (or absence of one) exactly as it
-// was — no half-started interviews. The profile row is keyed by the VERIFIED
-// userId (Supabase uuid, or the prototype dev user 'default').
+// SINGLE batch at the very end, only after the model produced a usable reply. A
+// model failure therefore leaves the row (or absence of one) exactly as it was —
+// no half-started interviews. The profile row is keyed by the VERIFIED userId
+// (Supabase uuid, or the prototype dev user 'default'), so redoing onboarding
+// rewrites that ONE row: duplicate rows are structurally impossible, and every
+// stated value replaces its predecessor rather than piling up beside it.
+//
+// Graceful degradation: when the AI call itself fails (provider unreachable,
+// timeout, rejected key) the interview completes with the profile already
+// collected instead of leaving the student stuck behind a broken dependency.
+// Unusable model OUTPUT is a different case and still fails loudly (NIM_ERROR),
+// so a real prompt/model defect stays visible instead of being papered over.
 
 import { chatCompletion } from './nimChat.js';
 import { parseJsonLoose } from './quizService.js';
-import { UNTRUSTED_RULE } from './prompts.js';
+import { renderPrompt, ONBOARDING_INTERVIEW } from './prompts.js';
 import { config } from '../config.js';
 import { ApiError } from '../middleware/errors.js';
-import { nowIso, loadProfileRow, saveProfileRow  } from '../store/sqlite.js';
+import { nowIso, loadProfileRow, saveProfileRow } from '../store/sqlite.js';
 // Shared v1.4 enums come from constants.js — the single source of truth
 // (routes never get imported from services).
 import { PURPOSES, EXPLANATION_STYLES } from '../constants.js';
@@ -30,35 +46,80 @@ const MAX_INTERESTS = 12;
 const INTEREST_MAX_CHARS = 40;
 const MAX_GOALS = 6;
 const MAX_SUBJECTS = 12;
+const MAX_REPLY_CHARS = 600; // a reply is one short question, never an essay
 const DEADLINE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const FAMILIARITIES = new Set(['none', 'basic', 'familiar', 'confident']);
 
-// ---------- interviewer prompt ----------
-
-const INTERVIEWER_PROMPT = [
-  'You are the friendly onboarding interviewer for Socius, an AI study companion.',
-  'Your goal is to learn enough about the student to personalise their tutoring. Ask exactly ONE short question per message — never cram several questions into one.',
-  'Cover, roughly in this order:',
-  '1. interests and hobbies;',
-  '2. goals and ambitions, and why they are studying (exam, project, research, or deep understanding);',
-  '3. how familiar they already are with their main subject (none / basic / familiar / confident);',
-  '4. their preferred explanation style (step-by-step / examples-first / visual / concise / guided-questions);',
-  '5. optionally, deadlines or other constraints.',
-  'Skipping or correcting an answer is always allowed: respond "no problem" and move on.',
-  'In your FIRST reply also mention that answers are saved in the app\'s database to personalise learning and can be viewed, edited or deleted later on the Profile page.',
-  'Never ask for name, age, contact details, address, health, politics or religion. If the student offers such sensitive information, do not store it and gently steer back to study topics.',
-  UNTRUSTED_RULE,
-  'Only claim to have learned something (extract/inferred) when the student actually said it; the memory of what was extracted is the "profile so far" JSON you receive each turn.',
-  'When you have enough to personalise, or the student wants to finish, reply warmly and set done: true.',
-  'Output ONLY JSON with exactly this shape (extract/inferred blocks may be omitted when nothing new was learned):',
-  '{"reply":"...", "extract":{"interests":[],"goals":[{"label":"...","deadline":"YYYY-MM-DD"}],"purpose":"","explanationStyle":"","subjects":[{"subject":"","familiarity":"none|basic|familiar|confident","confidence":null}]},"inferred":{"explanationStyle":"","interests":[]},"done":false}',
-  'Allowed enums: purpose: exam|project|research|deep-understanding|general. explanationStyle: step-by-step|examples-first|visual|concise|guided-questions.',
-].join('\n');
-
+// Trusted strings (never model output, never student text).
 const RETRY_REMINDER = [
   'Your previous answer was not usable. Output ONLY valid JSON, no prose, no markdown fences.',
   'Required shape: {"reply":"<non-empty string>","extract":{...},"inferred":{...},"done":false} — extract/inferred blocks may be omitted, "reply" and "done" may not.',
 ].join(' ');
+
+// Shown when the interviewer model could not be reached at all. It promises
+// nothing the server did not actually do: the profile is saved in its current
+// state and can be edited from the Profile page.
+const UNAVAILABLE_REPLY = [
+  'I could not reach the AI interviewer just now, so instead of leaving you stuck I saved your profile as it is.',
+  'You can add or change your goal, subjects and preferred explanation style any time on the Profile page.',
+].join(' ');
+
+// ---------- untrusted-input rendering ----------
+
+// An answer containing "</passage>" would otherwise look like the end of its
+// block, letting the rest of the text read as instructions. Neutralise the
+// delimiter in the RENDERED copy only — what we store stays the student's words.
+function escapeDelimiters(text) {
+  return text.replaceAll('</passage', '<\\/passage');
+}
+
+// The conversation as the model sees it: its own questions as plain lines, each
+// student answer wrapped in its own numbered, untrusted passage block. The
+// opening turn has no student text yet, so no block is emitted for it.
+function renderTranscript(entries) {
+  const window = entries.slice(-RENDER_TURNS);
+  const lines = [];
+  let passageId = 0;
+  for (const entry of window) {
+    if (entry.role === 'assistant') {
+      lines.push(`Tutor: ${entry.content}`);
+      continue;
+    }
+    if (entry.content === '') {
+      lines.push('Student: (has not said anything yet)');
+      continue;
+    }
+    passageId += 1;
+    lines.push([
+      `Student answer ${passageId} (untrusted, student-written):`,
+      `<passage id="${passageId}">`,
+      escapeDelimiters(entry.content),
+      '</passage>',
+    ].join('\n'));
+  }
+  return lines.join('\n') || '(the conversation just started — greet the student and ask your first question)';
+}
+
+function buildMessages(fields, transcript, strict) {
+  const { system, user } = renderPrompt(ONBOARDING_INTERVIEW, {
+    // Student-written text travels through `request` (user message only).
+    request: {
+      profileJson: JSON.stringify({
+        interests: fields.interests.map((i) => i.label),
+        goals: fields.goals,
+        purpose: fields.purpose ?? null,
+        explanationStyle: fields.preferences.explanationStyle?.value ?? null,
+      }),
+      transcript: renderTranscript(transcript),
+    },
+    // Trusted field: null removes the reminder line entirely.
+    fields: { retryReminder: strict ? RETRY_REMINDER : null },
+  });
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
 
 // ---------- defensive parsing ----------
 
@@ -82,10 +143,11 @@ function parseTranscriptJson(text) {
   }
 }
 
-// Validate the model's turn output. null → unusable → retried / 502.
+// Validate the model's turn output. null → unusable → retried / 502. Bounded
+// length keeps one runaway reply from swallowing the transcript budget.
 function normalizeTurn(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  const reply = typeof raw.reply === 'string' ? raw.reply.trim() : '';
+  const reply = typeof raw.reply === 'string' ? raw.reply.trim().slice(0, MAX_REPLY_CHARS) : '';
   if (reply === '') return null;
   return {
     reply,
@@ -143,33 +205,6 @@ function cleanSubjects(items) {
   return clean.size ? [...clean.values()] : null;
 }
 
-// ---------- prompt assembly ----------
-
-function renderTranscript(entries) {
-  return entries
-    .slice(-RENDER_TURNS)
-    .map((e) => `${e.role === 'assistant' ? 'Tutor' : 'Student'}: ${e.content === '' ? '(student has not said anything yet)' : e.content}`)
-    .join('\n') || '(the conversation just started — greet the student and ask your first question)';
-}
-
-function buildMessages(fields, transcript, strict) {
-  const user = [
-    `Student profile so far (JSON): ${JSON.stringify({
-      interests: fields.interests.map((i) => i.label),
-      goals: fields.goals,
-      purpose: fields.purpose ?? null,
-      explanationStyle: fields.preferences.explanationStyle?.value ?? null,
-    })}`,
-    'Conversation so far:',
-    renderTranscript(transcript),
-  ].join('\n');
-  const system = strict ? `${INTERVIEWER_PROMPT}\n\n${RETRY_REMINDER}` : INTERVIEWER_PROMPT;
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
-  ];
-}
-
 // ---------- the one public function ----------
 
 export async function turnOnboarding(db, rawMessage, { ai, userId = 'default' } = {}) {
@@ -190,19 +225,45 @@ export async function turnOnboarding(db, rawMessage, { ai, userId = 'default' } 
   let transcript = [...parseTranscriptJson(row?.transcript_json), { role: 'student', content: rawMessage }];
 
   let model = null;
+  let aiUnavailable = false;
   try {
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !model; attempt++) {
       const content = await chat(buildMessages(fields, transcript, attempt > 0), {
+        // Assessment-grade task/model, both from config (aiRouter.TASKS.assess →
+        // config.aiRouter.assessModel, which equals NIM_ASSESS_MODEL unless the
+        // operator overrides it). Passing the task keeps the router's log and
+        // cost accounting truthful about what was asked of the model.
+        task: 'assess',
         model: config.nimAssessModel,
         maxTokens: MAX_TOKENS,
       });
       model = normalizeTurn(parseJsonLoose(content));
     }
   } catch (err) {
-    if (err instanceof ApiError) throw err;
+    // The call itself failed (provider down, timeout, key rejected). Retrying
+    // here would only repeat what aiRouter already retried, so complete the
+    // interview with what we have rather than blocking the student.
     console.error('[onboarding] model call failed:', err?.message ?? err);
-    throw new ApiError(502, 'NIM_ERROR', 'The onboarding model could not be reached. Try again.');
+    aiUnavailable = true;
   }
+
+  if (aiUnavailable) {
+    // One clean write: interview marked finished, working memory cleared, the
+    // profile kept exactly as collected. Nothing half-started is persisted.
+    await saveProfileRow(db, userId, {
+      state: 'completed',
+      transcriptJson: '[]',
+      fieldsJson: JSON.stringify(fields),
+    });
+    return {
+      reply: UNAVAILABLE_REPLY,
+      state: 'completed',
+      questionsAsked: transcript.filter((e) => e.role === 'assistant').length,
+      done: true,
+      degraded: true, // additive: this setup is defaults, not an interview result
+    };
+  }
+
   if (!model) {
     throw new ApiError(502, 'NIM_ERROR', 'The onboarding model returned an unusable response. Try again.');
   }

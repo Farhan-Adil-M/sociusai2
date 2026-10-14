@@ -4,7 +4,7 @@ import express from 'express';
 import { ApiError } from '../middleware/errors.js';
 import { requireAuth } from '../middleware/auth.js';
 import { answerQuestion } from '../services/tutorService.js';
-import { APPROACH_ORDER } from '../services/events.js';
+import { APPROACH_ORDER, recordStudyEvent } from '../services/events.js';
 import { resolveRequestScope, validateSourceIds } from '../services/retrieval.js';
 import { classifyIntent, revisionAdvice, progressAdvice, importantQuestions } from '../services/studyAdvice.js';
 import { generateFlashcards } from '../services/flashcardService.js';
@@ -84,20 +84,33 @@ export function tutorRouter({ db, ai, vector, auth }) {
     const userId = req.userId;
     const scope = await resolveRequestScope(db, { sessionId, sourceIds: sourceIds ?? [] }, userId);
 
+    // Study-history row (A09's `recordStudyEvent`). This is the canonical
+    // `tutor_asked` entry in the activity feed the learner model reads; the
+    // `logActivity('question', …)` calls below stay because they are the
+    // hand-written tutor log the app already renders (and existing tests pin).
+    // Recorded here at the ROUTE, never as a hidden side effect inside the
+    // shared tutor service, so the emit site stays visible and testable.
+    const activeSessionId = scope.session?.id ?? null;
+    const recordAsked = (detail, topic = null) => recordStudyEvent(db, { type: 'tutor_asked', topic, detail, sessionId: activeSessionId, userId });
+
     // ---- study-planning intents (Part 6) ----
     const asked = question.trim();
     const handler = INTENT_HANDLERS[classifyIntent(asked).intent];
     if (handler) {
       const result = await handler.run(db, asked, scope, { ai, vector, userId });
-      await logActivity(db, 'question', null, handler.log(asked), scope.session?.id ?? null, userId);
-      return res.json({ ...result, sessionId: scope.session?.id ?? null });
+      await logActivity(db, 'question', null, handler.log(asked), activeSessionId, userId);
+      await recordAsked(`Asked: ${asked.slice(0, 80)} — ${result.intent} intent`, result.suggestedNext?.topic ?? null);
+      return res.json({ ...result, sessionId: activeSessionId });
     }
 
     const result = await answerQuestion(
       { question: asked, sourceIds: scope.sourceIds, db, userId, ...(approach !== undefined ? { approach } : {}) },
       { ai, vector },
     );
-    await logActivity(db, 'question', null, `Asked: ${asked.slice(0, 80)}`, scope.session?.id ?? null, userId);
+    await logActivity(db, 'question', null, `Asked: ${asked.slice(0, 80)}`, activeSessionId, userId);
+    await recordAsked(
+      `Asked: ${asked.slice(0, 80)} — ${result.needsContent ? 'no matching material' : `grounded in ${result.citations.length} passage(s)`}`,
+    );
 
     // ---- Part 8 (contract v1.5): auto practice deck during active study ----
     // Only on a successful grounded answer (needsContent false) inside a
@@ -107,7 +120,7 @@ export function tutorRouter({ db, ai, vector, auth }) {
     // Intent paths returned above, so generation can never start from those.
     let extra = {};
     if (!result.needsContent && await maybeStartAutoDeck({ db, ai, vector, scope, userId })) extra = { deckGeneration: 'started' };
-    res.json({ ...result, ...extra, sessionId: scope.session?.id ?? null });
+    res.json({ ...result, ...extra, sessionId: activeSessionId });
   });
 
   return router;

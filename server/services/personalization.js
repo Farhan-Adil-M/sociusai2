@@ -1,10 +1,19 @@
-// Learner-context personalisation (v1.4, milestone M3): build a compact,
-// budgeted description of what we know about this learner and turn it into
-// extra tutor-prompt rules. Facts still come only from the passages — the
-// learner context may shape style, examples, structure and strategy only.
+// Learner-context personalisation (v1.4, milestone M3) — build a compact,
+// budgeted description of what we know about this learner.
 //
-// Everything here is deterministic; the parts that take `db` only READ from
-// it (the caller records events separately in tutorService).
+// Provenance is the whole point: the learner model keeps **stated** preferences
+// (the student declared them — tone, depth, goals/deadlines, subjects) genuinely
+// separate from **inferred** ones (the app guessed them from behaviour). Stated
+// items are trusted; inferred items are hints only. Conflating the two is a
+// correctness bug, so `readLearnerPreferences` returns them in two separate
+// buckets and every consumer treats them differently.
+//
+// The context block may shape explanation style, examples, structure and
+// strategy only — facts still come ONLY from the passages.
+//
+// Everything here is deterministic and, where it takes `db`, only READS (the
+// caller records events separately, e.g. in tutorService). No LLM call ever
+// derives a preference (AGENTS.md).
 
 import { APPROACH_ORDER, questionTokens, summarizeApproaches } from './events.js';
 import { parseJsonObject, loadProfileRow } from '../store/sqlite.js';
@@ -20,6 +29,97 @@ export function tokenize(text) {
 
 function asString(value, maxLen) {
   return typeof value === 'string' && value.trim() !== '' ? value.trim().slice(0, maxLen) : null;
+}
+
+// ---- stated vs inferred: reading the profile by provenance ------------------
+
+/** An item is `inferred` only when it says so; everything else is stated. */
+const sourceOf = (item) => (item?.source === 'inferred' ? 'inferred' : 'stated');
+
+/** Valid explanation style of a stored `{ value, source }` preference, else null. */
+function validStyle(preference) {
+  const value = preference?.value;
+  return typeof value === 'string' && APPROACH_ORDER.includes(value) ? value : null;
+}
+
+/**
+ * Everything the student's profile says, split by PROVENANCE.
+ *
+ * This is the accessor surface for the Wave-4 stated-vs-inferred preferences
+ * API (A35, `server/routes/profile.js`). It performs no topic/question
+ * filtering — it returns the whole stored profile — so the endpoint can show
+ * every preference with its source badge. `buildLearnerContext` builds the
+ * question-relevant prompt block on top of it.
+ *
+ * @param {object} db   the store facade (read-only here)
+ * @param {string} [userId='default']
+ * @returns {Promise<{
+ *   hasProfile: boolean,          // a profile row exists and state is not 'new'
+ *   state: 'new'|'in_progress'|'completed'|'skipped',
+ *   stated: {
+ *     goals: Array<{label: string, deadline: string|null}>,
+ *     purpose: string|null,
+ *     explanationStyle: string|null,
+ *     interests: string[],
+ *     subjects: Array<{subject: string, familiarity: string, confidence: number|null}>,
+ *   },
+ *   inferred: {
+ *     goals: Array<{label: string, deadline: string|null}>,
+ *     purpose: string|null,
+ *     explanationStyle: string|null,
+ *     interests: string[],
+ *     subjects: Array<{subject: string, familiarity: string, confidence: number|null}>,
+ *   },
+ * }>}
+ * A fresh user (no row, or state 'new') yields empty buckets and
+ * `hasProfile: false` — never null and never a throw, so no prompt breaks.
+ */
+export async function readLearnerPreferences(db, userId = 'default') {
+  const row = await loadProfileRow(db, userId);
+  const fields = row ? parseJsonObject(row.fields_json) : {};
+
+  const stated = { goals: [], purpose: null, explanationStyle: null, interests: [], subjects: [] };
+  const inferred = { goals: [], purpose: null, explanationStyle: null, interests: [], subjects: [] };
+  const bucketFor = (item) => (sourceOf(item) === 'inferred' ? inferred : stated);
+
+  if (Array.isArray(fields.interests)) {
+    for (const item of fields.interests) {
+      const label = asString(item?.label, 40);
+      if (label) bucketFor(item).interests.push(label);
+    }
+  }
+
+  if (Array.isArray(fields.goals)) {
+    for (const item of fields.goals) {
+      const label = asString(item?.label, 120);
+      if (!label) continue;
+      const deadline = typeof item?.deadline === 'string' && item.deadline !== '' ? item.deadline : null;
+      bucketFor(item).goals.push({ label, deadline });
+    }
+  }
+
+  const purpose = asString(fields.purpose, 40);
+  if (purpose) bucketFor(fields).purpose = purpose; // purpose carries no own source; treated as stated
+
+  const style = validStyle(fields.preferences?.explanationStyle);
+  if (style) bucketFor(fields.preferences.explanationStyle).explanationStyle = style;
+
+  const subjectRows = await db.all(
+    'SELECT subject, familiarity, confidence, source FROM learner_subjects WHERE user_id = ? ORDER BY subject ASC',
+    userId,
+  );
+  for (const s of subjectRows) {
+    const subject = asString(s.subject, 60);
+    if (!subject) continue;
+    bucketFor(s).subjects.push({ subject, familiarity: s.familiarity ?? null, confidence: s.confidence ?? null });
+  }
+
+  return {
+    hasProfile: Boolean(row) && row.state !== 'new',
+    state: row?.state ?? 'new',
+    stated,
+    inferred,
+  };
 }
 
 // ---- relevant topics ---------------------------------------------------------
@@ -161,21 +261,20 @@ async function hasEventsForTopics(db, topics, userId = 'default') {
  * usable: no profile row or state "new", all profile fields empty, no
  * subjects at all, and no matched learner_topics or learning events → the
  * tutor prompt stays byte-identical to the pre-personalisation version.
+ *
+ * Provenance survives into the context: `statedInterests` / `inferredInterests`
+ * are kept apart, and `styleSource` says whether the teaching style is the
+ * student's own ("stated") or a guess ("inferred"). `interests` and `style`
+ * remain the combined, backwards-compatible view.
  */
 export async function buildLearnerContext(db, { question = '', sessionId = null, userId = 'default' } = {}) {
   const topics = await resolveRelevantTopics(db, question, sessionId, userId);
+  const prefs = await readLearnerPreferences(db, userId);
 
-  const row = await loadProfileRow(db, userId);
-  const fields = row ? parseJsonObject(row.fields_json) : {};
-
-  const goal = Array.isArray(fields.goals) && fields.goals.length > 0 ? asString(fields.goals[0]?.label, 120) : null;
-  const style = APPROACH_ORDER.includes(fields.preferences?.explanationStyle?.value)
-    ? fields.preferences.explanationStyle.value
-    : null;
-  const purpose = fields.purpose ?? null;
-  const interestLabels = Array.isArray(fields.interests)
-    ? fields.interests.map((i) => asString(i?.label, 40)).filter(Boolean)
-    : [];
+  const goal = prefs.stated.goals[0]?.label ?? prefs.inferred.goals[0]?.label ?? null;
+  const style = prefs.stated.explanationStyle ?? prefs.inferred.explanationStyle;
+  const styleSource = prefs.stated.explanationStyle ? 'stated'
+    : prefs.inferred.explanationStyle ? 'inferred' : null;
 
   // Question tokens PLUS the study-session title tokens: the learner is
   // working inside this session, so its topic scope counts as relevant.
@@ -188,16 +287,23 @@ export async function buildLearnerContext(db, { question = '', sessionId = null,
   }
 
   // Interests: only the ones that relate to what we are being asked about —
-  // never unrelated ones ("empty when nothing relates").
+  // never unrelated ones ("empty when nothing relates"). Stated first; the
+  // two kinds stay in separate lists so the prompt can label them.
   const interests = [];
-  for (const label of interestLabels) {
-    if (tokenize(label).some((t) => relevantTokens.has(t))) interests.push(label);
+  const statedInterests = [];
+  const inferredInterests = [];
+  for (const item of [
+    ...prefs.stated.interests.map((label) => ({ label, source: 'stated' })),
+    ...prefs.inferred.interests.map((label) => ({ label, source: 'inferred' })),
+  ]) {
     if (interests.length === 2) break;
+    if (!tokenize(item.label).some((t) => relevantTokens.has(t))) continue;
+    interests.push(item.label);
+    (item.source === 'inferred' ? inferredInterests : statedInterests).push(item.label);
   }
 
   // Subjects: only the matched ones, with their self-reported familiarity.
-  const subjectRows = await db.all('SELECT subject, familiarity FROM learner_subjects WHERE user_id = ? ORDER BY subject ASC', userId);
-  const subjects = subjectRows
+  const subjects = [...prefs.stated.subjects, ...prefs.inferred.subjects]
     .filter((s) => topics.includes(s.subject.trim().toLowerCase()))
     .map((s) => ({ subject: s.subject, familiarity: s.familiarity }));
 
@@ -216,15 +322,28 @@ export async function buildLearnerContext(db, { question = '', sessionId = null,
 
   // Nothing usable anywhere → tell the tutor service to keep the legacy prompt.
   // Usable self-reported data: any filled field on a row that is not "new".
-  const profileMissingOrNew = !row || row.state === 'new';
-  const hasSelfReported = !profileMissingOrNew
-    && Boolean(goal || style || purpose || interestLabels.length > 0);
-  const noSubjects = subjectRows.length === 0;
+  const hasSelfReported = prefs.hasProfile && Boolean(
+    goal || style || prefs.stated.purpose
+    || prefs.stated.interests.length > 0 || prefs.inferred.interests.length > 0,
+  );
+  const noSubjects = prefs.stated.subjects.length === 0 && prefs.inferred.subjects.length === 0;
   const noMatchedObserved = mastery.length === 0 && confusion.length === 0
     && approachNotes.length === 0 && !(await hasEventsForTopics(db, topics, userId));
   if (!hasSelfReported && noSubjects && noMatchedObserved) return null;
 
-  return { goal, style, interests, subjects, mastery, confusion, approachNotes, topics };
+  return {
+    goal,
+    style,
+    styleSource,
+    interests,
+    statedInterests,
+    inferredInterests,
+    subjects,
+    mastery,
+    confusion,
+    approachNotes,
+    topics,
+  };
 }
 
 // Human phrasing for a self-reported subject familiarity.
@@ -234,18 +353,29 @@ function familiarityLabel(f) {
 
 /**
  * Compact learner-context block for the tutor system prompt. Hard-capped at
- * 1200 characters (budget enforced here, server-side). Contains only the two
- * labelled sections — no transcript, no ids, nothing else.
+ * 1200 characters (budget enforced here, server-side). Contains only the three
+ * labelled sections — no transcript, no ids, nothing else. SELF-REPORTED holds
+ * what the student said; INFERRED holds the app's guesses, clearly marked as
+ * unconfirmed; OBSERVED holds what practice has shown.
  */
 export function buildLearnerBlock(context) {
   if (!context) return '';
+
+  const statedInterests = context.statedInterests ?? context.interests ?? [];
+  const inferredInterests = context.inferredInterests ?? [];
+
   const selfLines = [];
   if (context.goal) selfLines.push(`Goal: ${context.goal}`);
-  if (context.style) selfLines.push(`Explanation style: ${context.style}`);
-  if (context.interests.length) selfLines.push(`Interests: ${context.interests.join(', ')}`);
+  if (context.style && context.styleSource !== 'inferred') selfLines.push(`Explanation style: ${context.style}`);
+  if (statedInterests.length) selfLines.push(`Interests: ${statedInterests.join(', ')}`);
   if (context.subjects.length) {
     selfLines.push(`Subjects: ${context.subjects.map((s) => `${s.subject} (${familiarityLabel(s.familiarity)})`).join(', ')}`);
   }
+
+  const inferredLines = [];
+  if (context.style && context.styleSource === 'inferred') inferredLines.push(`Explanation style: ${context.style}`);
+  if (inferredInterests.length) inferredLines.push(`Interests: ${inferredInterests.join(', ')}`);
+
   const observedLines = [];
   if (context.mastery.length) {
     const parts = context.mastery.map((m) => `${m.topic} ${m.percent}%${m.uncertain ? ' (uncertain)' : ''}`);
@@ -257,6 +387,9 @@ export function buildLearnerBlock(context) {
   const block = [
     'SELF-REPORTED (the student\'s own words; may shape style/examples only):',
     ...(selfLines.length > 0 ? selfLines : ['(nothing self-reported yet)']),
+    '',
+    'INFERRED (the app\'s guess, NOT confirmed — a hint only, never a fact):',
+    ...(inferredLines.length > 0 ? inferredLines : ['(nothing inferred yet)']),
     '',
     'OBSERVED (from practice; uncertain = fewer than 3 attempts):',
     ...(observedLines.length > 0 ? observedLines : ['(nothing observed yet)']),
