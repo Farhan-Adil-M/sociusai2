@@ -16,6 +16,27 @@ Baseline: **195/195 tests passing** (`npm test`), established in Phase 0.
 ## Wave gate rule
 Do not start wave N+1 until wave N reports green AND `npm test` ≥ baseline (195).
 
+## ⚠️ How to load a skill (IMPORTANT — affects every agent)
+
+52 skills are installed at `~/.agents/skills/<name>/SKILL.md` and registered in
+`~/.agents/.skill-lock.json`. **The `skill` tool does NOT reliably see them** — its
+session registry was snapshotted mid-install and only exposes ~13 of the 52, so
+`skill(id=...)` returns "Unable to load skill" for most names.
+
+**Do this instead — it is authoritative and always works:**
+
+```bash
+cat ~/.agents/skills/<skill-name>/SKILL.md
+# plus any referenced files in that directory
+ls ~/.agents/skills/<skill-name>/
+```
+
+If `skill` happens to work for a name, fine. If it errors, **fall back to the file
+immediately** — do not report the skill as missing. A09 hit this and recovered
+correctly by following AGENTS.md conventions.
+
+Full list of installed skills: `ls ~/.agents/skills/`
+
 ## Non-negotiables (from AGENTS.md)
 - Vanilla JS / Express / ChromaDB / NIM. No frameworks without approval.
 - Keys stay backend-side. Browser never touches Chroma or NIM directly.

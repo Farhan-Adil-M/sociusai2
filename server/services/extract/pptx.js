@@ -5,7 +5,8 @@
 import AdmZip from 'adm-zip';
 import { ApiError } from '../../middleware/errors.js';
 
-function decodeXmlEntities(text) {
+// Shared with extract/docx.js — both parsers read Office Open XML text runs.
+export function decodeXmlEntities(text) {
   return text
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"').replace(/&apos;/g, "'")

@@ -1,14 +1,16 @@
-// Source ingestion routes: PDF/PPTX upload and pasted webpage text.
+// Source ingestion routes: PDF/PPTX/DOCX upload and pasted webpage text.
 // Pipeline: extract → chunk → embed → store vectors → store records (SQLite).
 
 import express from 'express';
 import multer from 'multer';
+import AdmZip from 'adm-zip';
 import path from 'node:path';
 import { config } from '../config.js';
 import { ApiError } from '../middleware/errors.js';
 import { chunkSegments } from '../services/chunker.js';
 import { extractPdf } from '../services/extract/pdf.js';
 import { extractPptx } from '../services/extract/pptx.js';
+import { extractDocx } from '../services/extract/docx.js';
 import { extractWebpage } from '../services/extract/webpage.js';
 import { addChunks, deleteChunks } from '../store/vectorStore.js';
 import { embedTexts } from '../services/embeddings.js';
@@ -17,15 +19,98 @@ import { suggestOrganization, acceptOrganization } from '../services/organizer.j
 import { requireAuth } from '../middleware/auth.js';
 import { logActivity, newId, nowIso, getMeta, setMeta, delMeta } from '../store/sqlite.js';
 
-const ALLOWED_EXTENSIONS = new Set(['.pdf', '.pptx']);
+// Every accepted upload: extension → stored source type, the MIME types a
+// browser is expected to send, and a human label used in error messages.
+const UPLOAD_FORMATS = new Map([
+  ['.pdf', { type: 'pdf', label: 'PDF', mimes: new Set(['application/pdf']) }],
+  ['.docx', {
+    type: 'docx',
+    label: 'Word document',
+    mimes: new Set(['application/vnd.openxmlformats-officedocument.wordprocessingml.document']),
+  }],
+  ['.pptx', {
+    type: 'pptx',
+    label: 'PowerPoint',
+    mimes: new Set(['application/vnd.openxmlformats-officedocument.presentationml.presentation']),
+  }],
+]);
+
+// Some clients (and our own tests) send no type, or a generic container type.
+// Those are accepted; a SPECIFIC type that contradicts the extension is not.
+const GENERIC_MIMES = new Set(['', 'application/octet-stream', 'application/zip', 'application/x-zip-compressed']);
+
+const UNSUPPORTED_FILE_MESSAGE = 'Only .pdf, .docx, and .pptx files can be uploaded.';
+
+// .docx/.pptx are ZIP containers; a small upload can expand enormously (a
+// "zip bomb"). Cap the total UNCOMPRESSED size we are willing to read.
+const ZIP_EXTENSIONS = new Set(['.docx', '.pptx']);
+const MAX_UNCOMPRESSED_MB = Number(process.env.ZIP_MAX_UNCOMPRESSED_MB ?? 100);
+
+function requireFormat(ext) {
+  const format = UPLOAD_FORMATS.get(ext);
+  if (!format) throw new ApiError(400, 'UNSUPPORTED_FILE', UNSUPPORTED_FILE_MESSAGE);
+  return format;
+}
+
+// Trust only the final path segment of a client-supplied filename: a crafted
+// name like "../../etc/passwd.docx" (or a Windows backslash path) must never
+// reach a stored title. Uploads are memory-only, so this is defence in depth.
+function sanitizeFilename(name) {
+  const base = path.posix.basename(String(name ?? '').replace(/\\/g, '/'));
+  const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  return (cleaned === '' || cleaned === '.' || cleaned === '..') ? 'upload' : cleaned;
+}
+
+// Reject a zip whose contents would unpack past the cap BEFORE extracting any
+// text, so a decompression bomb cannot exhaust memory. Throws the same
+// VALIDATION_ERROR as the extractors when the bytes are not a zip at all.
+function assertZipWithinLimits(buffer, label) {
+  let zip;
+  try {
+    zip = new AdmZip(buffer);
+  } catch {
+    throw new ApiError(400, 'VALIDATION_ERROR',
+      `This file could not be read as a ${label}. Re-export it and try again.`);
+  }
+  let totalBytes = 0;
+  for (const entry of zip.getEntries()) {
+    totalBytes += entry.header?.size ?? 0;
+    if (totalBytes > MAX_UNCOMPRESSED_MB * 1024 * 1024) {
+      throw new ApiError(413, 'FILE_TOO_LARGE',
+        `This ${label} unpacks to more than ${MAX_UNCOMPRESSED_MB} MB of text — too large to process safely.`);
+    }
+  }
+}
+
+// Single dispatch point for every file upload, shared by both ingest routes:
+// validate the extension, guard zip bombs, run the matching extractor, and tag
+// the extracted segments with the source type to persist.
+async function extractUpload(ext, buffer) {
+  const format = requireFormat(ext);
+  if (ZIP_EXTENSIONS.has(ext)) assertZipWithinLimits(buffer, format.label);
+
+  let extracted;
+  if (ext === '.pdf') extracted = await extractPdf(buffer);
+  else if (ext === '.pptx') extracted = extractPptx(buffer);
+  else extracted = extractDocx(buffer); // .docx
+
+  return { type: format.type, ...extracted };
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname ?? '').toLowerCase();
-    if (!ALLOWED_EXTENSIONS.has(ext)) {
-      return cb(new ApiError(400, 'UNSUPPORTED_FILE', 'Only .pdf and .pptx files can be uploaded.'));
+    const format = UPLOAD_FORMATS.get(ext);
+    if (!format) {
+      return cb(new ApiError(400, 'UNSUPPORTED_FILE', UNSUPPORTED_FILE_MESSAGE));
+    }
+    // Extension/MIME mismatch: a *.docx that claims to be an image is a spoof.
+    const mime = String(file.mimetype ?? '').toLowerCase();
+    if (!GENERIC_MIMES.has(mime) && !format.mimes.has(mime)) {
+      return cb(new ApiError(400, 'UNSUPPORTED_FILE',
+        `"${sanitizeFilename(file.originalname)}" has a ${ext} extension but reports type "${mime}" — re-export it and try again.`));
     }
     cb(null, true);
   },
@@ -53,6 +138,7 @@ function uploadSingleFile(req, res, next) {
 
 function sizeLabelFor(type, pageCount, slideCount) {
   if (type === 'webpage') return 'webpage';
+  if (type === 'docx') return 'document'; // .docx has no fixed pages or slides
   if (pageCount != null) return `${pageCount} pages`;
   return `${slideCount} slides`;
 }
@@ -188,8 +274,8 @@ export function sourcesRouter({ db, ai, vector, auth }) {
       throw new ApiError(413, 'FILE_TOO_LARGE', `This file is ${(Number(sizeBytes) / 1048576).toFixed(1)} MB — storage upload limit is ${APP_MAX} MB.`);
     }
     const ext = path.extname(storagePath).toLowerCase();
-    if (ext !== '.pdf' && ext !== '.pptx') {
-      throw new ApiError(400, 'UNSUPPORTED_FILE', 'Only .pdf and .pptx files can be ingested.');
+    if (!UPLOAD_FORMATS.has(ext)) {
+      throw new ApiError(400, 'UNSUPPORTED_FILE', 'Only .pdf, .docx, and .pptx files can be ingested.');
     }
     const userToken = req.userToken;
     if (!userToken) {
@@ -203,14 +289,13 @@ export function sourcesRouter({ db, ai, vector, auth }) {
         `Could not read the uploaded file from storage (${response.status}). Re-upload the file and try again.${detail ? '' : ''}`);
     }
     const bytes = Buffer.from(await response.arrayBuffer());
-    const extracted = ext === '.pdf' ? await extractPdf(bytes) : extractPptx(bytes);
+    const extracted = await extractUpload(ext, bytes);
     const source = await persistSource(db, {
-      type: ext === '.pdf' ? 'pdf' : 'pptx',
-      title: typeof title === 'string' && title.trim() ? title.trim().slice(0, 160) : storagePath.split('/').pop(),
+      title: typeof title === 'string' && title.trim() ? title.trim().slice(0, 160) : sanitizeFilename(storagePath.split('/').pop()),
       userId: req.userId,
       ...extracted,
     }, { embed, store, remove });
-    await logActivity(db, 'upload', null, `${source.title} via storage (${source.pageCount ?? source.slideCount} pages)`, null, req.userId);
+    await logActivity(db, 'upload', null, `${source.title} via storage (${source.sizeLabel})`, null, req.userId);
     res.status(201).json({ source: { ...source, url: null } });
   });
   router.post('/upload', uploadSingleFile, async (req, res) => {
@@ -218,19 +303,17 @@ export function sourcesRouter({ db, ai, vector, auth }) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'Attach one file in the "file" field.');
     }
     const userId = req.userId;
+    const safeName = sanitizeFilename(req.file.originalname);
+    const ext = path.extname(safeName).toLowerCase();
 
-    const ext = path.extname(req.file.originalname).toLowerCase();
-    const extracted = ext === '.pdf'
-      ? await extractPdf(req.file.buffer)
-      : extractPptx(req.file.buffer);
+    const extracted = await extractUpload(ext, req.file.buffer);
 
     const source = await persistSource(db, {
-      type: ext === '.pdf' ? 'pdf' : 'pptx',
-      title: req.file.originalname,
+      title: safeName.slice(0, 160),
       userId,
       ...extracted,
     }, { embed, store, remove });
-    await logActivity(db, 'upload', null, `${source.title} (${source.pageCount ?? source.slideCount} ${source.pageCount != null ? 'pages' : 'slides'})`, null, userId);
+    await logActivity(db, 'upload', null, `${source.title} (${source.sizeLabel})`, null, userId);
     res.status(201).json({ source: { ...source, url: null } });
   });
 

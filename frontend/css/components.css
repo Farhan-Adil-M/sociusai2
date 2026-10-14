@@ -1,0 +1,1427 @@
+/* =============================================================================
+   Socius2 — Component layer
+   The shared vocabulary for the app interior. Twelve pages are built on these
+   names, so a class should exist here before a page invents its own.
+
+   Load order on every page:  tokens.css → base.css → components.css → shell.css
+                              → <page>.css
+
+   Rules
+     · Every colour, space, radius, shadow, duration and z-index is a
+       var(--token) from tokens.css. Raw px only for widths, heights and
+       border-widths.
+     · A class here has ONE job. Size/gap variants are modifiers of the same
+       block (`.btn.btn-sm`), never new blocks.
+     · Gaps: the number in `.stack-N` / `.cluster-N` is the --sN space step
+       (`.stack-3` = gap: var(--s3) = 12px).
+     · Pages may COMPOSE these classes. A page may not restyle them; if a page
+       needs a different shape, request it in docs/HANDOFF.md.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   Supplementary tokens.
+   tokens.css (owned by Phase 0, not by A01) ships the *-soft status fills but
+   no matching border hues, no scrim, and no pink ink that reaches AA on pink
+   tint. They belong in tokens.css — see the HANDOFF entry FROM: A01 TO: A01.
+   Until they move, this is their only definition; they are still tokens, so a
+   retheme stays a one-file change.
+   ------------------------------------------------------------------------ */
+:root {
+  --green-line:  #BFE1D3;
+  --amber-line:  #F0D9AE;
+  --red-line:    #F1C6C3;
+  --bg-scrim:    rgba(16, 20, 24, 0.5);   /* modal / drawer backdrop */
+  --border-hover: var(--ink-4);           /* input border on hover */
+  --pink-ink:    var(--pink-hover);       /* --pink on --pink-soft is 4.49:1 */
+  --focus-ring-danger: 0 0 0 3px color-mix(in srgb, var(--red) 30%, transparent);
+}
+
+/* ===========================================================================
+   1 · LAYOUT
+   ======================================================================== */
+
+/* Centred app content column. */
+.container {
+  width: 100%;
+  max-width: var(--shell-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* Narrow column for reading and single-column forms. */
+.container-narrow { max-width: var(--measure); }
+
+/* Skip link — first focusable element in every page. */
+.skip-link {
+  position: fixed;
+  top: var(--s2);
+  left: var(--s2);
+  z-index: var(--z-toast);
+  padding: var(--s2) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--blue);
+  color: var(--fg-onAccent);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  text-decoration: none;
+  transform: translateY(calc(-100% - var(--s4)));
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.skip-link:focus { transform: none; }
+
+/* Vertical rhythm. Use `.stack` on ANY container whose children need spacing.
+   <div class="stack stack-5">  → column, 24px gaps
+   Each numbered class stands alone too (`class="stack-2"`, as ui.js emits), so
+   the display rule is repeated in the variant list. */
+.stack,
+.stack-1, .stack-2, .stack-3, .stack-4, .stack-5, .stack-6, .stack-7, .stack-8 {
+  display: flex;
+  flex-direction: column;
+}
+.stack { gap: var(--s4); }
+.stack-1 { gap: var(--s1); }
+.stack-2 { gap: var(--s2); }
+.stack-3 { gap: var(--s3); }
+.stack-4 { gap: var(--s4); }
+.stack-5 { gap: var(--s5); }
+.stack-6 { gap: var(--s6); }
+.stack-7 { gap: var(--s7); }
+.stack-8 { gap: var(--s8); }
+
+/* Horizontal row that wraps. Use for button rows, meta rows, toolbars.
+   Numbered classes stand alone here too (`class="cluster-2"`). */
+.cluster,
+.cluster-1, .cluster-2, .cluster-3, .cluster-4, .cluster-5, .cluster-6, .cluster-7, .cluster-8 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cluster { gap: var(--s3); }
+.cluster-1 { gap: var(--s1); }
+.cluster-2 { gap: var(--s2); }
+.cluster-3 { gap: var(--s3); }
+.cluster-4 { gap: var(--s4); }
+.cluster-5 { gap: var(--s5); }
+.cluster-6 { gap: var(--s6); }
+.cluster-7 { gap: var(--s7); }
+.cluster-8 { gap: var(--s8); }
+.cluster-between { justify-content: space-between; }
+
+/* Pushes the following flex children to the far end of a row/column. */
+.spacer { flex: 1; }
+
+/* Column grids. `.grid-2/3/4` collapse to one column below 720px.
+   `.grid-auto` fits as many columns as the width allows (card decks). */
+.grid { display: grid; gap: var(--s4); }
+.grid-auto { grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); }
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+@media (max-width: 720px) {
+  .grid-2,
+  .grid-3,
+  .grid-4 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Main content + a sticky side panel.
+   Mark the aside with class="sidebar"; it sticks below the topbar on desktop. */
+.sidebar-layout {
+  display: grid;
+  gap: var(--s5);
+  align-items: start;
+}
+
+@media (min-width: 960px) {
+  .sidebar-layout { grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); }
+  .sidebar-layout.is-aside-first { grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); }
+  .sidebar-layout > .sidebar {
+    position: sticky;
+    top: calc(var(--topbar-h) + var(--s4));
+  }
+}
+
+/* Page header: title + supporting line on the left, actions on the right. */
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+  margin-bottom: var(--s5);
+}
+.page-head :where(p) {
+  max-width: 60ch;
+  margin-top: var(--s2);
+  color: var(--fg-muted);
+}
+.page-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* Search + filters row, usually the first thing under a page header. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+.toolbar-search {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-left: auto;
+}
+
+/* Separator between blocks of content. */
+.divider {
+  height: 1px;
+  border: 0;
+  margin-block: var(--s4);
+  background: var(--border);
+}
+.divider-vertical {
+  width: 1px;
+  height: auto;
+  align-self: stretch;
+  margin: 0 var(--s3);
+}
+.divider-flush { margin-block: 0; }
+
+/* ===========================================================================
+   2 · TYPOGRAPHY HELPERS
+   Element defaults live in base.css; these are the opt-in shapes.
+   ======================================================================== */
+
+/* Small label above a title or a group. Sentence case on purpose. */
+.eyebrow {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  color: var(--fg-muted);
+  text-transform: none;
+}
+
+/* Secondary text: meta lines, timestamps, captions. */
+.muted { color: var(--fg-muted); }
+
+/* Opening sentence of a page or section — one step larger than body. */
+.lead {
+  font-size: var(--fs-md);
+  line-height: var(--lh-snug);
+  color: var(--fg-default);
+}
+
+/* Identifiers, scores, keys, code-ish values. */
+.mono { font-family: var(--font-mono); }
+
+.text-xs { font-size: var(--fs-xs); }
+.text-sm { font-size: var(--fs-sm); }
+
+/* One-line ellipsis for titles inside flexible rows. */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Opt-in marked list (with `.prose` this is automatic). */
+.list {
+  padding-inline-start: var(--s5);
+  list-style: disc;
+}
+ol.list { list-style: decimal; }
+.list > li { margin-top: var(--s1); }
+
+/* Reading column: tutor answers, source excerpts, help text.
+   Owns the vertical rhythm and the marker/quote styling for long-form content. */
+.prose {
+  max-width: var(--measure);
+  color: var(--fg-default);
+}
+.prose > * + * { margin-top: var(--s4); }
+.prose :where(h1, h2, h3, h4) {
+  margin-top: var(--s6);
+  color: var(--fg-strong);
+  line-height: var(--lh-snug);
+}
+.prose :where(h1, h2, h3, h4):first-child { margin-top: 0; }
+.prose :where(ul, ol) {
+  padding-inline-start: var(--s5);
+  list-style: disc;
+}
+.prose :where(ol) { list-style: decimal; }
+.prose :where(li) { margin-top: var(--s1); }
+.prose :where(blockquote) {
+  padding-inline-start: var(--s4);
+  border-inline-start: 2px solid var(--border-strong);
+  font-family: var(--font-serif);
+  color: var(--fg-strong);
+}
+.prose :where(code) {
+  padding: 0 var(--s1);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+.prose :where(pre) { padding: var(--s4); }
+.prose :where(img) { border-radius: var(--r-md); }
+.prose :where(hr) {
+  height: 1px;
+  border: 0;
+  background: var(--border);
+}
+
+/* Icon size helper for the SVGs ui.js renders.
+   ui.js always sets width/height attributes (icon(name, {size})), and a CSS
+   declaration would outrank those attributes — so there is deliberately no
+   width here. The 1em fallback only covers an SVG with no explicit size. */
+.icon {
+  display: inline-block;
+  flex: none;
+  vertical-align: -0.125em;
+}
+.icon:not([width]) {
+  width: 1em;
+  height: 1em;
+}
+
+/* ===========================================================================
+   3 · BUTTONS
+   A bare `.btn` is the neutral (secondary) button. Add ONE variant + optional
+   size. Markup: <button class="btn btn-primary">Save</button>
+   ======================================================================== */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-height: 40px;
+  padding-inline: var(--s4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  color: var(--fg-strong);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.btn:hover { background: var(--bg-hover); }
+.btn:active { background: var(--bg-active); }
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Busy: ui.js sets aria-busy="true" and puts a `.spinner` inside the button. */
+.btn[aria-busy="true"] {
+  opacity: 0.75;
+  cursor: progress;
+  pointer-events: none;
+}
+
+.btn .icon,
+.btn svg { flex: none; }
+
+/* ---- variants ---- */
+
+.btn-primary {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--fg-onAccent);
+}
+.btn-primary:hover { background: var(--blue-hover); border-color: var(--blue-hover); }
+.btn-primary:active { background: var(--blue-active); border-color: var(--blue-active); }
+
+.btn-secondary {
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--fg-strong);
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--fg-default);
+}
+.btn-ghost:hover { background: var(--bg-hover); }
+.btn-ghost:active { background: var(--bg-active); }
+
+/* Destructive action: irreversible deletes, "remove source", "reset profile". */
+.btn-danger {
+  border-color: var(--red);
+  background: var(--red);
+  color: var(--fg-onAccent);
+}
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--red) 88%, var(--ink));
+  border-color: color-mix(in srgb, var(--red) 88%, var(--ink));
+}
+.btn-danger:active {
+  background: color-mix(in srgb, var(--red) 80%, var(--ink));
+  border-color: color-mix(in srgb, var(--red) 80%, var(--ink));
+}
+
+/* ---- sizes and shapes ---- */
+
+.btn-sm {
+  min-height: 32px;
+  padding-inline: var(--s3);
+  font-size: var(--fs-xs);
+}
+.btn-lg {
+  min-height: 48px;
+  padding-inline: var(--s5);
+  font-size: var(--fs-base);
+}
+.btn-block { width: 100%; }
+
+/* Square icon-only button. Always give it an aria-label. */
+.btn-icon {
+  width: 36px;
+  min-height: 36px;
+  padding-inline: 0;
+  flex: none;
+}
+
+/* ===========================================================================
+   4 · FORMS
+   Markup:
+     <div class="field">
+       <label class="label" for="x">Title</label>
+       <input class="input" id="x" aria-describedby="x-help" aria-invalid="false">
+       <p class="help" id="x-help">…</p>
+       <p class="error" hidden>…</p>
+     </div>
+   ======================================================================== */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  min-height: 40px;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  color: var(--fg-strong);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.input::placeholder,
+.textarea::placeholder { color: var(--fg-subtle); }
+
+.input:hover:not(:disabled),
+.textarea:hover:not(:disabled),
+.select:hover:not(:disabled) { border-color: var(--border-hover); }
+
+/* Text fields show focus as a border change + ring instead of the outline. */
+.input:focus-visible,
+.textarea:focus-visible,
+.select:focus-visible {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: var(--focus-ring);
+}
+
+.input:disabled,
+.textarea:disabled,
+.select:disabled {
+  background: var(--bg-sunken);
+  color: var(--fg-subtle);
+  cursor: not-allowed;
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+/* Caret drawn with two small gradients in the muted ink — no image request. */
+.select {
+  appearance: none;
+  padding-right: var(--s7);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%),
+    linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - var(--s4)) center,
+    calc(100% - var(--s4) + 5px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* Invalid input: red border + red focus ring, driven by aria-invalid. */
+.input[aria-invalid="true"],
+.textarea[aria-invalid="true"],
+.select[aria-invalid="true"] { border-color: var(--red); }
+
+.input[aria-invalid="true"]:focus-visible,
+.textarea[aria-invalid="true"]:focus-visible,
+.select[aria-invalid="true"]:focus-visible { box-shadow: var(--focus-ring-danger); }
+
+.help {
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+
+.error {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--red);
+}
+
+/* Checkbox and radio: native controls, tinted with the accent colour.
+   Markup: <label class="checkbox"><input type="checkbox"> Remember me</label> */
+.checkbox,
+.radio {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  font-size: var(--fs-sm);
+  color: var(--fg-default);
+  cursor: pointer;
+}
+.checkbox input,
+.radio input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+.checkbox:has(input:disabled),
+.radio:has(input:disabled) {
+  color: var(--fg-subtle);
+  cursor: not-allowed;
+}
+.choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* Two or more fields side by side that collapse on narrow screens. */
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: var(--s4);
+}
+
+/* Input with an inline control on the right (search field, clear, paste). */
+.input-group { position: relative; }
+.input-group .input { padding-right: 40px; }
+.input-group-btn {
+  position: absolute;
+  top: 50%;
+  right: var(--s1);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-muted);
+  transform: translateY(-50%);
+}
+.input-group-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+}
+
+/* ===========================================================================
+   5 · SURFACES
+   .card  = a padded block of content
+   .panel = a framed region with head / body / foot sections
+   .well  = a sunken block inside a card (quotes, code, note boxes)
+   ======================================================================== */
+
+.card {
+  padding: var(--s5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+
+/* A card that is itself a link (library items, deck tiles). */
+a.card {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+a.card:hover { border-color: var(--border-strong); }
+
+.panel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--border);
+}
+.panel-title {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+.panel-body { padding: var(--s5); }
+.panel-body :where(p, ul) { margin-top: var(--s3); }
+.panel-body > :first-child { margin-top: 0; }
+.panel-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s2);
+  padding: var(--s4) var(--s5);
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+
+.well {
+  padding: var(--s4);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+}
+
+/* ===========================================================================
+   6 · FEEDBACK
+   ======================================================================== */
+
+/* ---- badges: short status words ---- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 2px var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.badge-success {
+  border-color: var(--green-line);
+  background: var(--green-soft);
+  color: var(--green);
+}
+.badge-warn {
+  border-color: var(--amber-line);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.badge-danger {
+  border-color: var(--red-line);
+  background: var(--red-soft);
+  color: var(--red);
+}
+.badge-info {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+.badge-accent {
+  border-color: var(--pink-line);
+  background: var(--pink-soft);
+  color: var(--pink-ink);
+}
+
+/* The app shell's demo marker: shell.js emits .badge.badge-warn.demo-badge
+   when ?mock=1. It rides in the sidebar's brand row, so it must not shrink. */
+.demo-badge {
+  flex: none;
+  padding-inline: var(--s2);
+  font-size: var(--fs-xs);
+}
+
+/* ---- status dot: health pill, "live" indicators.
+   Rendered as a <span>, often inside plain text, so it is inline-block. ---- */
+
+.status-dot {
+  display: inline-block;
+  width: var(--s2);
+  height: var(--s2);
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--green);
+}
+.status-dot.is-warn { background: var(--amber); }
+.status-dot.is-down { background: var(--red); }
+.status-dot.is-idle { background: var(--fg-subtle); }
+
+/* ---- alerts: a message that belongs to the page flow ---- */
+
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--fg-subtle);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  color: var(--fg-default);
+}
+.alert .icon { margin-top: 2px; color: inherit; }
+.alert :where(strong) { color: inherit; }
+
+.alert-info {
+  border-color: var(--blue-line);
+  border-inline-start-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+.alert-success {
+  border-color: var(--green-line);
+  border-inline-start-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+.alert-warn {
+  border-color: var(--amber-line);
+  border-inline-start-color: var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.alert-danger {
+  border-color: var(--red-line);
+  border-inline-start-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+/* ---- spinner: one indicator, used inline and inside buttons ----
+   ui.js renders it as <span class="spinner">, so it must be non-inline:
+   width/height and transform are ignored on an inline box. */
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: var(--r-full);
+  animation: spin 700ms linear infinite;
+}
+.spinner-sm {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- progress ----
+   Determinate:  <div class="progress"><div class="progress-bar" style="width:42%"></div></div>
+   Indeterminate: add `is-indeterminate` to .progress (no width needed).
+   Always add role="progressbar" + aria-valuenow/min/max on the outer element. */
+
+.progress {
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--r-full);
+  background: var(--bg-sunken);
+}
+.progress-bar {
+  width: 0;
+  height: 100%;
+  border-radius: var(--r-full);
+  background: var(--blue);
+  transition: width var(--dur-slow) var(--ease-out);
+}
+.progress.is-indeterminate .progress-bar {
+  width: 100%;
+  animation: progress-slide 1.2s var(--ease-in-out) infinite;
+}
+@keyframes progress-slide {
+  0%   { transform: translateX(-100%) scaleX(0.35); }
+  50%  { transform: translateX(0) scaleX(0.5); }
+  100% { transform: translateX(100%) scaleX(0.35); }
+}
+.progress-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s2);
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+.progress-label :where(strong) { color: var(--fg-strong); }
+
+/* ---- skeleton: placeholder block while data loads ----
+   ui.js renders each bar as <span class="skeleton skeleton-text">, and a
+   <span> ignores height — so the block display is load-bearing. */
+
+.skeleton {
+  display: block;
+  min-height: var(--s4);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  animation: skeleton-pulse 1.4s var(--ease-in-out) infinite;
+}
+.skeleton-text {
+  width: 100%;
+  height: 0.9em;
+  margin-block: 0.4em;
+}
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* ===========================================================================
+   7 · CONTENT
+   ======================================================================== */
+
+/* ---- table: real tabular data. Wrap it so narrow screens can scroll. ---- */
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+}
+.table {
+  width: 100%;
+  font-size: var(--fs-sm);
+}
+.table :where(th, td) {
+  padding: var(--s3) var(--s4);
+  text-align: start;
+  vertical-align: middle;
+}
+.table :where(thead th) {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+.table :where(tbody td) { border-top: 1px solid var(--border); }
+.table :where(tbody tr:hover) { background: var(--bg-hover); }
+.table :where(td strong) { color: var(--fg-strong); }
+.table-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+/* ---- row list: records as rows (sources, sessions, decks, activity) ---- */
+
+.row-list { display: flex; flex-direction: column; }
+.row-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  color: inherit;
+  text-decoration: none;
+}
+.row-item + .row-item { border-top: 1px solid var(--border); }
+a.row-item { transition: background-color var(--dur-fast) var(--ease-out); }
+a.row-item:hover { background: var(--bg-hover); }
+.row-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+}
+.row-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  flex: 1;
+  min-width: 0;
+}
+.row-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+.row-meta {
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+
+/* ---- tabs: switch the view inside one page ----
+   <div class="tabs" role="tablist"><button class="tab" role="tab"
+     aria-selected="true">Progress</button>…</div> */
+
+.tabs {
+  display: flex;
+  overflow-x: auto;
+  gap: var(--s1);
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-bottom: -1px;
+  padding: var(--s3);
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--fg-muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.tab:hover { color: var(--fg-strong); }
+.tab[aria-selected="true"] {
+  border-bottom-color: var(--blue);
+  color: var(--fg-strong);
+}
+
+/* ---- chip: filter toggles and removable tags ----
+   Filter  : <button class="chip" aria-pressed="false">PDF</button>
+   Tag     : <span class="chip">Chapter 3 <button class="chip-remove"
+             aria-label="Remove Chapter 3">×</button></span> */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 28px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  background: var(--bg-surface);
+  color: var(--fg-default);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  cursor: pointer;
+}
+.chip:hover { background: var(--bg-hover); }
+.chip[aria-pressed="true"] {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+.chip-remove {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  opacity: 0.65;
+  cursor: pointer;
+}
+.chip-remove:hover { opacity: 1; }
+
+/* ---- avatar: initials or image in a circle ---- */
+
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.avatar-sm { width: 24px; height: 24px; }
+.avatar-lg {
+  width: 48px;
+  height: 48px;
+  font-size: var(--fs-sm);
+}
+
+/* ---- tooltip ----
+   Any element : <button class="btn" data-tooltip="Explain this">…
+   Custom body : <span class="tooltip"><span class="tooltip-bubble">…</span>…</span>
+   Add data-tooltip-pos="bottom" / .is-bottom to place it under the target. */
+
+.tooltip {
+  position: relative;
+  display: inline-flex;
+}
+.tooltip-bubble,
+[data-tooltip]::after {
+  position: absolute;
+  bottom: calc(100% + var(--s2));
+  left: 50%;
+  z-index: var(--z-dropdown);
+  padding: var(--s1) var(--s2);
+  border-radius: var(--r-sm);
+  background: var(--fg-strong);
+  color: var(--bg-surface);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    visibility var(--dur-fast) var(--ease-out);
+}
+[data-tooltip] { position: relative; }
+[data-tooltip]::after { content: attr(data-tooltip); }
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after,
+.tooltip:hover .tooltip-bubble,
+.tooltip:focus-within .tooltip-bubble {
+  opacity: 1;
+  visibility: visible;
+}
+
+[data-tooltip-pos="bottom"]::after,
+.tooltip-bubble.is-bottom {
+  bottom: auto;
+  top: calc(100% + var(--s2));
+}
+
+/* ---- kbd: a keyboard shortcut ---- */
+
+.kbd {
+  display: inline-block;
+  padding: 0 var(--s2);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  color: var(--fg-default);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+}
+
+/* ---- empty-state: "there is nothing here yet" ----
+   Rendered by ui.js / states.js. Structure:
+     <div class="empty-state">
+       <div class="empty-state-icon">…icon…</div>
+       <p class="empty-state-title">No sources yet</p>
+       <p class="empty-state-text">Upload a PDF, …</p>
+       <div class="empty-state-actions">…buttons…</div>
+     </div>
+   Add `is-error` for a failed load: the same shape, red icon. */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s7) var(--s5);
+  text-align: center;
+  color: var(--fg-muted);
+}
+.empty-state-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+}
+.empty-state-title {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+  color: var(--fg-strong);
+}
+.empty-state-text {
+  max-width: 44ch;
+  font-size: var(--fs-sm);
+}
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s2);
+  margin-top: var(--s1);
+}
+.empty-state.is-error .empty-state-icon {
+  border-color: var(--red-line);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+/* ---- breadcrumb ---- */
+
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+.breadcrumb li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.breadcrumb li + li::before {
+  content: "/";
+  color: var(--fg-subtle);
+}
+.breadcrumb a {
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+.breadcrumb a:hover {
+  color: var(--fg-strong);
+  text-decoration: underline;
+}
+.breadcrumb [aria-current="page"] {
+  color: var(--fg-strong);
+  font-weight: var(--fw-medium);
+}
+
+/* ---- citation: the source chip under a grounded answer ----
+   Rendered by ui.js for tutor answers, quiz results and flashcard backs.
+   The chip is a <button> (or <a> when the source has a URL) that expands
+   `.citation-detail` inside the same `.citations` wrapper. */
+
+.citations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.citation {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  max-width: 100%;
+  padding: 2px var(--s2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  color: var(--fg-default);
+  font-size: var(--fs-xs);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.citation:hover {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+.citation[aria-expanded="true"] {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+.citation-title {
+  max-width: 22ch;
+  overflow: hidden;
+  color: var(--fg-strong);
+  font-weight: var(--fw-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.citation-loc {
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.citation-detail {
+  flex-basis: 100%;
+  padding: var(--s3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+}
+.citation-detail :where(blockquote) {
+  margin: 0 0 var(--s2);
+  padding-inline-start: var(--s3);
+  border-inline-start: 2px solid var(--border-strong);
+  font-family: var(--font-serif);
+  font-size: var(--fs-sm);
+  color: var(--fg-strong);
+}
+
+/* ===========================================================================
+   8 · OVERLAY
+   All three blocks are toggled by the `hidden` attribute, so the page markup
+   ships them closed and JS only flips `hidden`.
+   ARIA contract per overlay: role="dialog", aria-modal="true",
+   aria-labelledby → the title. ui.js/shell.js move focus in and restore it on
+   close, and close on Escape. Nothing here traps focus by itself.
+   ======================================================================== */
+
+/* ---- scrim: the dimmed layer behind a drawer or mobile nav ----
+   shell.js ships <div class="scrim" hidden> and toggles the attribute. The
+   modal and drawer blocks below paint their own backdrop, so `.scrim` is for
+   an overlay that lives outside them. */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: var(--bg-scrim);
+}
+
+/* ---- modal: a decision or a form over the page ----
+   <div class="modal" hidden>
+     <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="m1">
+       <div class="modal-head"><h2 class="modal-title" id="m1">…</h2>
+         <button class="btn btn-ghost btn-icon" aria-label="Close">×</button></div>
+       <div class="modal-body">…</div>
+       <div class="modal-foot"><button class="btn">Cancel</button>
+         <button class="btn btn-primary">Save</button></div>
+     </div>
+   </div> */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: var(--s5);
+  background: var(--bg-scrim);
+  animation: fade-in var(--dur-base) var(--ease-out);
+}
+.modal-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-3);
+  animation: rise-in var(--dur-base) var(--ease-out);
+}
+.modal-dialog.is-lg { max-width: 800px; }
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--border);
+}
+.modal-title {
+  font-family: var(--font-serif);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  color: var(--fg-strong);
+}
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--s5);
+}
+.modal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s2);
+  padding: var(--s4) var(--s5);
+  border-top: 1px solid var(--border);
+}
+
+/* ---- drawer: a side sheet, usually for details or import ----
+   Same contract as the modal. Add `is-left` (or data-side="left") to slide in
+   from the other edge. */
+
+.drawer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  justify-content: flex-end;
+  background: var(--bg-scrim);
+  animation: fade-in var(--dur-base) var(--ease-out);
+}
+.drawer-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100%);
+  height: 100%;
+  border-inline-start: 1px solid var(--border);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-3);
+  animation: slide-in-right var(--dur-base) var(--ease-out);
+}
+.drawer.is-left { justify-content: flex-start; }
+.drawer.is-left .drawer-panel {
+  border-inline-start: 0;
+  border-inline-end: 1px solid var(--border);
+  animation-name: slide-in-left;
+}
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--border);
+}
+.drawer-title {
+  font-family: var(--font-serif);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  color: var(--fg-strong);
+}
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--s5);
+}
+.drawer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s2);
+  padding: var(--s4) var(--s5);
+  border-top: 1px solid var(--border);
+}
+
+/* ---- toast: transient confirmation, stacked bottom-right ----
+   ui.js renders it and mounts itself in the region:
+     <div class="toast toast-success">
+       <svg class="icon">…</svg>
+       <span class="toast-message">Saved</span>
+       <button class="btn btn-ghost btn-icon" aria-label="Dismiss">…</button>
+     </div>
+   The message takes the free space, which pushes the close button right. */
+
+.toast-region {
+  position: fixed;
+  right: var(--s5);
+  bottom: var(--s5);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  width: min(360px, calc(100vw - var(--s5) * 2));
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--fg-subtle);
+  border-radius: var(--r-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-2);
+  font-size: var(--fs-sm);
+  color: var(--fg-default);
+  pointer-events: auto;
+  animation: rise-in var(--dur-base) var(--ease-out);
+}
+.toast .icon { margin-top: 2px; }
+.toast-message { flex: 1; }
+.toast-success { border-inline-start-color: var(--green); }
+.toast-warn { border-inline-start-color: var(--amber); }
+.toast-danger { border-inline-start-color: var(--red); }
+.toast-info { border-inline-start-color: var(--blue); }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(24px); }
+  to { transform: none; }
+}
+@keyframes slide-in-left {
+  from { transform: translateX(-24px); }
+  to { transform: none; }
+}

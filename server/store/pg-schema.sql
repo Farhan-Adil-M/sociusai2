@@ -1,5 +1,5 @@
 -- =====================================================================
--- Supabase/Postgres schema (v1). Mirrors the SQLite v6 model with
+-- Supabase/Postgres schema (v1). Mirrors the SQLite v8 model with
 -- per-user ownership. Idempotent; applied by scripts/migrate-supabase.mjs.
 -- *_json columns stay TEXT (engine parity — the app always round-trips a
 -- JSON string; jsonb would deserialise to objects and break JSON.parse).
@@ -47,7 +47,9 @@ create table if not exists public.sources (
   manual_override integer not null default 0,
   suggestion_json text,
   license     text,
-  origin      text not null default 'upload'
+  origin      text not null default 'upload',
+  level       integer not null default 1,
+  source_kind text not null default 'pdf'
 );
 create index if not exists sources_user on public.sources(user_id);
 create index if not exists sources_session on public.sources(session_id);
@@ -81,6 +83,8 @@ create table if not exists public.quiz_questions (
   correct_choice_id text not null,
   explanation       text not null default '',
   citations_json    text not null default '[]',
+  difficulty        integer not null default 1,
+  estimated_minutes integer not null default 0,
   primary key (quiz_id, idx)
 );
 
@@ -126,6 +130,9 @@ create table if not exists public.deck_cards (
   citations_json text not null default '[]',
   status         text not null default 'new',
   reviewed_at    text,
+  review_count   integer not null default 0,
+  ease           real not null default 2.5,
+  due_at         text,
   primary key (deck_id, idx)
 );
 
@@ -161,6 +168,66 @@ create table if not exists public.learning_events (
 );
 create index if not exists events_user on public.learning_events(user_id, id desc);
 
+-- v8: Wave 4 feature tables (media, shares, conversions, adaptive levels).
+-- status on media_assets is the transcript status for youtube rows and the
+-- OCR status for image rows. source_conversions records DOCX/PDF/PPT →
+-- normalised text/docx conversions per source.
+create table if not exists public.source_conversions (
+  id            text primary key,
+  user_id       uuid not null references public.profiles(id) on delete cascade,
+  source_id     text not null references public.sources(id) on delete cascade,
+  target_format text not null default 'text',
+  status        text not null default 'pending',
+  output_path   text,
+  char_count    integer not null default 0,
+  error         text,
+  created_at    text not null,
+  updated_at    text not null
+);
+create index if not exists source_conversions_user on public.source_conversions(user_id, source_id);
+
+create table if not exists public.difficulty_levels (
+  user_id          uuid not null references public.profiles(id) on delete cascade,
+  topic            text not null,
+  level            integer not null default 1,
+  mastery          real not null default 0,
+  last_assessed_at text,
+  updated_at       text not null,
+  primary key (user_id, topic)
+);
+create index if not exists difficulty_levels_user on public.difficulty_levels(user_id, last_assessed_at);
+
+create table if not exists public.shares (
+  id         text primary key,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  session_id text references public.study_sessions(id) on delete set null,
+  source_id  text references public.sources(id) on delete set null,
+  url        text not null,
+  title      text,
+  kind       text not null default 'webpage',
+  status     text not null default 'pending',
+  error      text,
+  created_at text not null
+);
+create index if not exists shares_user on public.shares(user_id, created_at);
+create index if not exists shares_session on public.shares(session_id);
+
+create table if not exists public.media_assets (
+  id               text primary key,
+  user_id          uuid not null references public.profiles(id) on delete cascade,
+  source_id        text references public.sources(id) on delete set null,
+  kind             text not null default 'youtube',
+  url              text,
+  status           text not null default 'pending',
+  duration_seconds integer,
+  text_chars       integer not null default 0,
+  error            text,
+  created_at       text not null,
+  updated_at       text not null
+);
+create index if not exists media_assets_user on public.media_assets(user_id, kind);
+create index if not exists media_assets_source on public.media_assets(source_id);
+
 create table if not exists public.vector_chunks (
   id             text primary key,
   user_id        uuid references public.profiles(id) on delete cascade,
@@ -184,6 +251,26 @@ alter table public.app_meta enable row level security; -- default-deny for REST
 create index if not exists quiz_attempts_user on public.quiz_attempts(user_id);
 
 -- ------------------------------------------------------------------
+-- v8 additive column guards: CREATE TABLE IF NOT EXISTS above is a
+-- no-op on a deployment that predates these columns, so add them (and
+-- the indexes that depend on them) idempotently here. ADD COLUMN IF
+-- NOT EXISTS keeps re-running scripts/migrate-supabase.mjs safe.
+-- ------------------------------------------------------------------
+alter table public.sources        add column if not exists level integer not null default 1;
+alter table public.sources        add column if not exists source_kind text not null default 'pdf';
+alter table public.quiz_questions add column if not exists difficulty integer not null default 1;
+alter table public.quiz_questions add column if not exists estimated_minutes integer not null default 0;
+alter table public.deck_cards     add column if not exists review_count integer not null default 0;
+alter table public.deck_cards     add column if not exists ease real not null default 2.5;
+alter table public.deck_cards     add column if not exists due_at text;
+create index if not exists sources_kind on public.sources(user_id, source_kind);
+create index if not exists deck_cards_due on public.deck_cards(due_at);
+-- Backfill source_kind for rows that predate the column (type is the legacy
+-- discriminator; only the untouched default is corrected — re-runnable).
+update public.sources set source_kind = type
+  where source_kind = 'pdf' and type in ('pptx','docx','webpage','youtube','image');
+
+-- ------------------------------------------------------------------
 -- Defense-in-depth RLS: the Node backend connects with a privileged
 -- role and enforces ownership in SQL predicates (user_id = verified
 -- token id). These policies protect the REST/PostgREST + dashboard
@@ -203,6 +290,10 @@ alter table public.activity        enable row level security;
 alter table public.learner_subjects enable row level security;
 alter table public.learning_events enable row level security;
 alter table public.vector_chunks   enable row level security;
+alter table public.source_conversions enable row level security;
+alter table public.difficulty_levels  enable row level security;
+alter table public.shares             enable row level security;
+alter table public.media_assets       enable row level security;
 
 drop policy if exists own_rows on public.profiles;
 create policy own_rows on public.profiles for all using ((select auth.uid()) = id) with check ((select auth.uid()) = id);
@@ -224,3 +315,11 @@ drop policy if exists own_rows on public.learner_subjects;
 create policy own_rows on public.learner_subjects for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 drop policy if exists own_rows on public.learning_events;
 create policy own_rows on public.learning_events for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+drop policy if exists own_rows on public.source_conversions;
+create policy own_rows on public.source_conversions for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+drop policy if exists own_rows on public.difficulty_levels;
+create policy own_rows on public.difficulty_levels for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+drop policy if exists own_rows on public.shares;
+create policy own_rows on public.shares for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+drop policy if exists own_rows on public.media_assets;
+create policy own_rows on public.media_assets for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);

@@ -1,9 +1,17 @@
 // Apply the Supabase/Postgres schema (server/store/pg-schema.sql) and stamp
-// app_meta.schema_version. Idempotent: CREATE IF NOT EXISTS + policies are
-// dropped and recreated; never drops tables or data.
+// app_meta.schema_version. Idempotent: CREATE IF NOT EXISTS + ADD COLUMN IF
+// NOT EXISTS + policies are dropped and recreated; never drops tables or data.
+// Postgres-only — refuses to run without SUPABASE_DB_URL so it can never be
+// pointed at the local SQLite database by mistake.
 import fs from 'node:fs';
 import path from 'node:path';
 import { openAppDb, CURRENT_SCHEMA_VERSION } from '../server/store/db.js';
+import { config } from '../server/config.js';
+
+if (!(config.supabaseDbUrl ?? '').trim()) {
+  console.error('[migrate:supabase] SUPABASE_DB_URL is not set — this script only targets Supabase/Postgres. Use "npm run migrate" for the local SQLite database.');
+  process.exit(1);
+}
 
 const engine = await openAppDb({ allowRemoteMigrate: true });
 try {

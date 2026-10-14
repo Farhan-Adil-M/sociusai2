@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { once } from 'node:events';
-import { newId, openDb } from '../server/store/sqlite.js';
+import { newId, openDb, CURRENT_SCHEMA_VERSION } from '../server/store/sqlite.js';
 import { createApp } from '../server/app.js';
 import { fakeVector, makeAi, QUIZ_JSON, FLASHCARD_JSON, TUTOR_ANSWER } from './helpers.js';
 
@@ -82,7 +82,7 @@ test('migration upgrades a real v1 database without losing rows', async () => {
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vector_chunks'").get(), 'vector_chunks table');
   // v7: per-user columns + composite learner keys (fixture expectation moves
   // with the schema's own single source of truth, CURRENT_SCHEMA_VERSION).
-  assert.equal(db.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, '7');
+  assert.equal(db.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, String(CURRENT_SCHEMA_VERSION));
   assert.ok(fs.existsSync(`${dbPath}.v1.bak`), 'v1 backup copy');
   // Idempotent: re-open does not re-badge or duplicate anything.
   await openDb(dbPath);

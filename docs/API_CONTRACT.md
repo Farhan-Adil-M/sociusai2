@@ -1,10 +1,17 @@
-# Socius AI — API Contract (v1 → v1.5)
+# Socius AI — API Contract (v2.0)
 
-Shared specification between backend (`server/`, owned by OpenCode) and frontend (`frontend/`, owned by Freebuff).
-**This file is owned by the backend agent.** Propose changes in chat before editing; both sides must follow it.
+Shared specification between the backend (`server/`), the frontend (`frontend/`), and the browser extension (`extension/`).
+**Owner: agent A05 (`docs/API_CONTRACT.md`).** Every agent builds against this file; propose a change to it before editing (see `docs/OWNERSHIP.md`).
 
 Base URL: same origin — Express serves the API under `/api` and the static frontend at `/`.
-All request and response bodies are JSON (`Content-Type: application/json`) except file upload.
+All request and response bodies are JSON (`Content-Type: application/json`) except multipart file upload.
+
+## How to read this file (read this before building)
+
+- **`Status: shipped`** — the endpoint exists today in `server/routes/*.js`. **`Status: planned (Wave 4)`** — not built yet; the shape below is the agreed target the Wave 4 backend agents (A31–A40) implement and the page agents consume. **Never treat a `planned` endpoint as available, and never change a `shipped` shape without a version bump.**
+- **Authentication is real and current (v1.6).** Every endpoint except `GET /api/health` requires a verified user — see "Authentication & ownership".
+- **Historical statements are superseded, not deleted.** Sections `v1.0`–`v1.5` describe the app as it was at that version. Where one says "the app has no authentication" or "login is a visual prototype", v1.6 supersedes it. When two statements disagree, the newest section wins.
+- Additive change is the norm; see "Versioning & compatibility" for the exact rules.
 
 ---
 
@@ -38,9 +45,14 @@ Stable error codes:
 | `SESSION_EMPTY` | 400 | The session has no material yet (tutor/quiz/flashcards with a `sessionId`) |
 | `DECK_NOT_FOUND` | 404 | Referenced deck ID does not exist |
 | `ONBOARDING_COMPLETE` | 409 | Onboarding already finished (see v1.4) |
+| `UNAUTHENTICATED` | 401 | Missing/expired/invalid Bearer token on a private endpoint (v1.6) |
+| `STORAGE_FETCH_FAILED` | 422 | Direct-to-Storage ingest could not read the object back (see `/sources/storage-ingest`) |
+| `FETCH_FAILED` | 502 | A remote document/site/video could not be fetched — **planned (Wave 4)** |
+| `NO_TRANSCRIPT` | 422 | The YouTube video has no usable transcript/captions — **planned (Wave 4)** |
+| `OCR_FAILED` | 422 | The image could not be read into text — **planned (Wave 4)** |
 | `INTERNAL` | 500 | Unexpected server error |
 
-**IDs:** readable strings, `src_…`, `quiz_…`, `card_…` (server-generated).
+**IDs:** readable, server-generated strings: `src_…` (source), `ses_…` (study session), `deck_…` (flashcard deck), `quiz_…` (quiz), `card_…` (flashcard), `shr_…` (share, Wave 4). A client-supplied id in a body is never authoritative.
 
 **Citation schema** — used by tutor answers, quiz questions, and flashcards. Built **only** from retrieved ChromaDB metadata; the language model never supplies filenames, pages, or slide numbers.
 
@@ -56,13 +68,37 @@ Stable error codes:
 }
 ```
 
-- `type`: `"pdf" | "pptx" | "webpage"`
+- `type`: `"pdf" | "pptx" | "webpage"` today; Wave 4 adds `"docx" | "youtube" | "image"` (**planned**)
 - `title`: filename for uploads; webpage title (or hostname) for webpages
 - `url`: set for webpages, `null` otherwise
-- `location`: `{ "page": n }` for PDF, `{ "slide": n }` for PPTX, `{ "paragraph": n }` for webpages, or `null` if unknown
+- `location`: `{ "page": n }` for PDF, `{ "slide": n }` for PPTX, `{ "paragraph": n }` for webpages, or `null` if unknown. Wave 4 adds `{ "timestamp": "mm:ss" }` (YouTube) and `{ "segment": n }` (image/DOCX) (**planned**)
 - `score`: Chroma similarity (0–1, higher = closer); optional, may be omitted
 
 Frontend rendering guidance: show `title` + `location` as the citation chip; expose `excerpt` and `url` on expand/click.
+
+---
+
+## Authentication & ownership (current — v1.6)
+
+Identity is a real user account. The backend verifies `Authorization: Bearer <supabase access token>` and derives the acting user id **only** from that verification — a user id supplied in a body is never trusted.
+
+| Mode | Chosen when | Behaviour |
+|---|---|---|
+| `supabase` | `SUPABASE_URL` + `SUPABASE_ANON_KEY` are set | Every private endpoint requires a valid Bearer token; all data is filtered/pinned to the verified user id. |
+| `prototype` | no Supabase envs (local demo, tests) | No sign-in exists; every request acts as the fixed dev user `'default'`. **Single shared profile — never expose it publicly.** |
+
+- **Public endpoint:** `GET /api/health` only. It reports `checks.auth.mode` and, in supabase mode, the public `supabaseUrl` + `supabaseAnonKey` (both safe in a browser; no service-role or database credentials ever leave the server).
+- **Every other endpoint is private.** A missing/expired/invalid token → `401 { "error": { "code": "UNAUTHENTICATED", "message": "Sign in to use this endpoint." } }`. Prototype mode never returns 401.
+- **Ownership:** every private read/write filters by the verified user id; another user's id is indistinguishable from a missing one (`404`-style, never leaked). Session/source scoping composes with ownership, and vector retrieval is owner-filtered too.
+- **Extension auth:** the extension has no Supabase client library, so it obtains the same session through `POST /api/auth/login` and refreshes it through `POST /api/auth/refresh` (see "Extension contract").
+
+## Versioning & compatibility
+
+- The contract is versioned by dated sections (`v1.0` → `v2.0`). **Minor sections are additive:** they may add optional request fields and new response fields, but never rename, remove, or change the type/status of an existing field.
+- **Clients must ignore unknown fields.** A client that reads only the fields it knows survives every additive change; servers likewise tolerate unknown keys where a section does not forbid them.
+- **The error envelope is frozen:** `{ "error": { "code", "message" } }`. New codes may be added (see the table); an existing code's HTTP status never changes.
+- **A change is breaking** (needs a new major version and an agreed migration) when it removes/renames a field, changes a field's type, changes a status code, or makes a previously-optional field required.
+- **Withdrawn claims:** v1.0–v1.5 stated "no authentication". Superseded by v1.6. Historical sections are kept verbatim so the decision trail stays readable.
 
 ---
 
@@ -85,7 +121,9 @@ Liveness + dependency status. The frontend calls this once on load to decide wha
 }
 ```
 
-`status` is `"ok"` when every check is ok, else `"degraded"`. NIM check results are cached ~60 s. Secrets are never included.
+`status` is `"ok"` when every check is ok, else `"degraded"`. NIM check results are cached ~60 s (the probe is a paid embedding call). Secrets are never included.
+
+This example predates later additive fields; the live payload also carries `checks.sqlite.backend`, `checks.chroma.backend`, `checks.limits.maxUploadMb`, and `checks.auth` (`{ "mode": "supabase" | "prototype" }`, plus the public `supabaseUrl`/`supabaseAnonKey` in supabase mode) — see v1.3, v1.5, and v1.6.
 
 ---
 
@@ -370,6 +408,73 @@ Read-only rollup from SQLite. No AI or vector calls.
 
 ---
 
+## Extension contract
+
+The browser extension (`extension/`, MV3, v0.2.0) talks to the **same** backend with the **same** Bearer tokens as the website. **Agent A45 owns the manifest and the cross-app sync test;** this section is the interface it builds against. All endpoints here are `Status: shipped`.
+
+### Session handoff: the `#socius_session` fragment
+
+The extension keeps its Supabase session in `chrome.storage.local` (per-device, deliberately never `sync`, so tokens do not roam). When the user opens the app from the extension, the session is passed in the **URL fragment** so the site lands already signed in:
+
+1. The extension builds the fragment (a fragment stays in the browser and is **never sent to any server**):
+   ```js
+   const payload = btoa(JSON.stringify({ access_token, refresh_token, expires_at }));
+   const url = siteUrl + '#socius_session=' + encodeURIComponent(payload);
+   ```
+2. The site's `frontend/js/auth.js` reads `location.hash`, base64-decodes `socius_session`, adopts the tokens into its own auth storage, then **strips the fragment** (`history.replaceState`) so it does not linger.
+
+- `payload` is base64 of `{ access_token: string, refresh_token: string, expires_at: number|null }` — `expires_at` is epoch **seconds** (the Supabase shape).
+- Absent, malformed, or already-signed-in → adoption is a safe no-op. A bad fragment must never crash page load.
+- Contract test: `tests/extension-sync.test.js` (A45) round-trips encode → adopt → tokens present.
+
+### `POST /api/auth/login`
+
+Password grant for the extension (which has no Supabase client library). The website signs in against Supabase directly from the browser instead.
+
+**Request:** `{ "email": "learner@example.com", "password": "…" }`
+
+**Response 200 (supabase mode):**
+```json
+{ "mode": "supabase", "session": { "access_token": "…", "refresh_token": "…", "expires_at": 1760000000, "expires_in": 3600, "token_type": "bearer", "user": { "id": "uuid", "email": "learner@example.com" } } }
+```
+
+**Response 200 (prototype mode):** `{ "mode": "prototype" }` — no sign-in exists; the extension hides its login UI.
+
+**Errors:** 400 `VALIDATION_ERROR`, 401 `UNAUTHENTICATED` ("Email or password is incorrect.").
+
+### `POST /api/auth/refresh`
+
+Rotate a refresh token for a fresh session.
+
+**Request:** `{ "refresh_token": "…" }` → **200** `{ mode, session }` (same envelope as login). Stale/invalid token → 401 `UNAUTHENTICATED`. Prototype mode → 200 `{ "mode": "prototype" }`.
+
+### `POST /api/extension/relevance`
+
+Which sentences on the current page relate to **this user's** study material (drives the highlighter). Runs on every page visit, so it makes **no** AI call until the user owns material.
+
+**Auth:** required.
+
+**Request:**
+```json
+{ "blocks": [ { "id": "e3s1", "text": "A sentence from the page (1–600 chars)." } ] }
+```
+1–60 blocks; each `id` 1–64 chars, each `text` 1–600 chars.
+
+**Response 200:**
+```json
+{ "matches": [ { "id": "e3s1", "score": 0.91, "citation": { "sourceId": "src_a1b2c3", "type": "pdf", "title": "chapter3.pdf", "url": null, "location": { "page": 12 }, "excerpt": "…", "score": 0.91 } } ], "minScore": 0.8 }
+```
+- One nearest own chunk is scored per block; matches below `minScore` (`EXTENSION_MIN_SIMILARITY`, default 0.8) are dropped.
+- No material owned by the user → `{ "matches": [], "minScore": 0.8 }` (and no paid embedding call).
+
+**Errors:** 400 `VALIDATION_ERROR`, 401 `UNAUTHENTICATED`, 502 `NIM_ERROR`, 503 `CHROMA_UNAVAILABLE`, 504 `NIM_TIMEOUT`.
+
+### `POST /api/extension/briefing`
+
+See "POST /api/extension/briefing" above: a grounded briefing for one highlighted passage — `{ answer, citations, needsContent, suggestions, model }`. Auth required.
+
+---
+
 ## Learner model (deterministic, server-side)
 
 Per topic (topic = trimmed key from the quiz request):
@@ -403,9 +508,19 @@ Catalog visibility ≠ account access: many listed models returned HTTP 404 for 
 
 ---
 
-## Non-goals for v1 (explicit)
+## v1 scope — and what later versions changed
 
-Real authentication (login page is a labeled visual prototype), multi-user profiles, browser-extension capture, lecture-video processing, OCR for scanned PDFs, spaced-repetition scheduling for flashcards, cloud deployment.
+The original v1.0 non-goals were: real authentication, multi-user profiles, browser-extension capture, lecture-video processing, OCR for scanned PDFs, spaced-repetition scheduling, and cloud deployment. Current truth (do not repeat the old list as if it were still true):
+
+| v1.0 non-goal | Status now |
+|---|---|
+| Real authentication | **Shipped in v1.6** (Supabase Auth; see "Authentication & ownership") |
+| Multi-user profiles | **Shipped in v1.6** (per-user ownership) |
+| Browser-extension capture | **Shipped** (`extension/`, v0.2.0 — relevance + briefing) |
+| Cloud deployment | **Shipped** (Vercel; see README "Deploying to Vercel") |
+| Lecture-video processing | **Planned — Wave 4** (`POST /api/media/youtube`) |
+| OCR for scanned PDFs / images | **Planned — Wave 4** (`POST /api/media/ocr`) |
+| Spaced-repetition scheduling | **Not implemented** (decks persist per-card `known`/`review` only) |
 
 ---
 
@@ -663,3 +778,312 @@ After a **successful session-scoped tutor answer** (`sessionId` given, `needsCon
 **Profile endpoints**: row identity is the verified user id (no more `'default'`-only rows in supabase mode); GET/PATCH/DELETE semantics unchanged and now user-scoped.
 
 **Schema v7:** node-engine additive migration (user_id columns + backed-up composite-PK rebuilds of `learner_topics`/`learner_subjects`); pg schema (`server/store/pg-schema.sql`) applied by `npm run migrate:supabase` — both stamp `schema_version` 7. `ON CONFLICT` targets updated to the new keys.
+
+---
+
+# v2.0 — Wave 4: adaptive levels, planner, advice, share, viewer, media & events (2026-10-14)
+
+**Status: planned (Wave 4) — none of the endpoints in this section exists yet.** They are the agreed target for agents A31–A40 (`server/routes/adaptive.js`, `planner.js`, `advice.js`, `share.js`, `viewer.js`, `media.js`, `events.js`) and for the page/component agents that consume them. All are **private** (Bearer auth; prototype mode uses the fixed dev user). All are additive: no shipped request/response shape changes. New error codes introduced here: `FETCH_FAILED` (502), `NO_TRANSCRIPT` (422), `OCR_FAILED` (422).
+
+## Difficulty levels (the 1–4 scale, deterministic)
+
+This is the *adaptive* surface that replaces the three-word `easy|medium|hard` scale. The mapping is computed server-side from stored mastery — never from the model, never from the client.
+
+| Level | Label | Mastery rule | Practice difficulty |
+|---|---|---|---|
+| `1` | `foundation` | `mastery < 0.4` | `easy` |
+| `2` | `developing` | `0.4 ≤ mastery < 0.6` | `easy` |
+| `3` | `proficient` | `0.6 ≤ mastery < 0.8` | `medium` |
+| `4` | `advanced` | `mastery ≥ 0.8` | `hard` |
+
+`mastery = correct / total` over all graded attempts for the topic; a topic with no attempts reports level `1`. `level` is always an **integer 1–4**; `levelLabel` is the string above. A31 owns the exact thresholds — moving a boundary is compatible (the wire shape is unchanged); changing the 1–4 type or the label enum is not.
+
+## New source types & citation locations (planned)
+
+Wave 4 shares/media add source `type` values `"docx" | "youtube" | "image"` and citation `location` values `{ "timestamp": "mm:ss" }` (YouTube; `mm:ss` or `h:mm:ss`) and `{ "segment": n }` (image/DOCX). Everything else in the source object and the Citation schema is unchanged.
+
+## `POST /api/adaptive/generate` — `Status: planned (Wave 4)`
+
+Generate a source-grounded multiple-choice quiz **tagged with a difficulty level 1–4**. Same answer-key protection as `POST /api/quiz/generate`: the key never leaves the backend.
+
+**Auth:** required.
+
+**Request:**
+```json
+{ "topic": "Photosynthesis", "level": 2, "questionCount": 5, "sourceIds": ["src_a1b2c3"], "sessionId": null }
+```
+- `topic`: required, 2–80 chars.
+- `level`: optional integer 1–4. **Omitted → the learner model chooses** the level for this topic (see "Difficulty levels").
+- `questionCount`: 3–10, default 5.
+- `sourceIds` / `sessionId`: same scoping rules as `POST /api/quiz/generate` (session scope is server-enforced).
+
+**Response 201:**
+```json
+{
+  "quiz": {
+    "id": "quiz_x9y8z7",
+    "mode": "adaptive",
+    "topic": "Photosynthesis",
+    "level": 2,
+    "levelLabel": "developing",
+    "difficulty": "easy",
+    "questions": [
+      {
+        "index": 0,
+        "text": "Which pigment absorbs light energy for photosynthesis?",
+        "choices": [ { "id": "a", "text": "Chlorophyll" }, { "id": "b", "text": "Starch" }, { "id": "c", "text": "Oxygen" }, { "id": "d", "text": "Carbon dioxide" } ],
+        "citations": [ /* Citation schema */ ]
+      }
+    ]
+  },
+  "sessionId": null
+}
+```
+- `choices`: always 4 items, ids `a`–`d`. There is **no** `correctChoiceId`/`explanation` here — by contract and server-side filtering.
+- `weakEvidence: true` (additive, as in v1.2) is present when every retrieved passage scored below the evidence floor.
+
+**Errors:** 400 `VALIDATION_ERROR` (bad `topic`/`level`/`questionCount`/`sourceIds`), 400 `SESSION_EMPTY`, 404 `SOURCE_NOT_FOUND`, 404 `SESSION_NOT_FOUND`, 422 `QUIZ_CONTENT_INVALID`, 502 `NIM_ERROR`, 503 `CHROMA_UNAVAILABLE`, 504 `NIM_TIMEOUT`.
+
+## `POST /api/adaptive/answer` — `Status: planned (Wave 4)`
+
+Submit a full attempt; deterministic grading; reveals the key; updates the learner model **once** and reports the level change.
+
+**Auth:** required.
+
+**Request:**
+```json
+{ "quizId": "quiz_x9y8z7", "answers": [ { "index": 0, "choiceId": "b" }, { "index": 1, "choiceId": null } ] }
+```
+One entry per question; `choiceId` is `"a".."d"` or `null` (unanswered → incorrect). Out-of-range or duplicate indices → 400.
+
+**Response 200:**
+```json
+{
+  "result": {
+    "score": { "correct": 3, "total": 5, "percent": 60 },
+    "questions": [
+      { "index": 0, "yourChoiceId": "b", "correctChoiceId": "c", "correct": false, "explanation": "Chlorophyll absorbs light energy…", "citations": [ /* Citation schema */ ] }
+    ],
+    "levelUpdate": { "topic": "photosynthesis", "beforeLevel": 2, "afterLevel": 3, "masteryBefore": 0.5, "masteryAfter": 0.6 },
+    "recommendedLevel": 3
+  }
+}
+```
+- `masteryBefore` is `null` on a topic's first attempt.
+- **Idempotency:** a second submission to the same quiz → **409** `QUIZ_ALREADY_ANSWERED` with the stored result under `"result"` (display it; do not resubmit) — the same rule as `POST /api/quiz/:quizId/answer`.
+
+**Errors:** 400 `VALIDATION_ERROR`, 404 `QUIZ_NOT_FOUND`, 409 `QUIZ_ALREADY_ANSWERED`, 500 `INTERNAL`.
+
+## `GET /api/adaptive/progress` — `Status: planned (Wave 4)`
+
+Per-topic mastery rolled up **to a level**. Read-only; no AI or vector calls.
+
+**Auth:** required.
+
+**Response 200:**
+```json
+{
+  "topics": [
+    { "topic": "photosynthesis", "masteryPercent": 60, "level": 3, "levelLabel": "proficient", "difficulty": "medium", "correct": 3, "total": 5, "needsRevision": false, "lastPracticedAt": "2026-10-12T17:30:00.000Z" }
+  ],
+  "overall": { "quizzesTaken": 2, "questionsAnswered": 10, "accuracyPercent": 70 },
+  "levelCounts": { "1": 0, "2": 1, "3": 0, "4": 0 }
+}
+```
+- `difficulty` is the value `POST /api/adaptive/generate` will use when `level` is omitted.
+- Empty account: empty `topics`, zeroed `overall`, `levelCounts` all `0`.
+
+**Errors:** 500 `INTERNAL`.
+
+## `GET /api/planner` — `Status: planned (Wave 4)`
+
+A server-computed study plan over **stored evidence only**. Replaces client-side-only planning. Deterministic; **no AI call.**
+
+**Auth:** required.
+
+**Query:** `?days=7` (optional, integer 1–30, default 7).
+
+**Response 200:**
+```json
+{
+  "plan": {
+    "generatedAt": "2026-10-14T10:00:00.000Z",
+    "horizonDays": 7,
+    "hasEvidence": true,
+    "items": [
+      { "day": 1, "date": "2026-10-14", "topic": "photosynthesis", "level": 3, "activity": "quiz", "reason": "Mastery 60% over 5 questions — below the 0.8 target.", "estimatedMinutes": 15, "sourceIds": ["src_a1b2c3"] }
+    ],
+    "summary": "Focus on 2 topics this week."
+  }
+}
+```
+- `activity`: `"quiz" | "review" | "flashcards" | "tutor"` (how the server proposes to practise).
+- `hasEvidence: false` with `items: []` when there is no quiz history yet; `summary` then tells the learner to take a first diagnostic quiz. **The server never invents a topic or a mastery number.**
+- `sourceIds`: the user's own source ids that cover the topic (may be empty).
+
+**Errors:** 400 `VALIDATION_ERROR` (bad `days`), 500 `INTERNAL`.
+
+## `GET /api/advice` — `Status: planned (Wave 4)`
+
+"What should I revise next", over stored evidence. Deterministic; **no AI call.**
+
+**Auth:** required.
+
+**Query:** `?topic=photosynthesis` (optional, 2–80 chars; omit for an overall recommendation).
+
+**Response 200:**
+```json
+{
+  "advice": {
+    "topic": "photosynthesis",
+    "hasEvidence": true,
+    "action": "revise",
+    "reason": "Mastery 60% over 5 attempts — below the 0.8 target.",
+    "priority": "high",
+    "level": 3,
+    "evidence": { "correct": 3, "total": 5, "masteryPercent": 60, "lastPracticedAt": "2026-10-12T17:30:00.000Z" },
+    "sourceIds": ["src_a1b2c3"],
+    "alternatives": [ { "topic": "recursion", "masteryPercent": 40 } ]
+  }
+}
+```
+- `action`: `"revise" | "practise" | "start"`. `priority`: `"high" | "medium" | "low"`.
+- No history for the topic → `hasEvidence: false`, `evidence: null`, `action: "start"`, a friendly `reason`, empty `alternatives`.
+
+**Errors:** 400 `VALIDATION_ERROR` (bad `topic`), 500 `INTERNAL`.
+
+## `POST /api/share` — `Status: planned (Wave 4)`
+
+Ingest a shared deep link (PowerPoint / document / website) into the library. Used by the Web Share API flow (`frontend/js/components/share.js`).
+
+**Auth:** required.
+
+**Request:**
+```json
+{ "url": "https://example.org/lesson1.pptx", "title": "Lesson 1 slides", "text": "optional pasted page text" }
+```
+- `url`: required, valid `http(s)` (`INVALID_URL` otherwise). The server decides the kind: `.pdf`/`.pptx`/`.docx` → fetch & extract as a document; any other URL → treat as a web page.
+- `title`: optional, ≤160 chars (defaults to the URL's file name or hostname).
+- `text`: optional, 50–200 000 chars. When present (the share sheet could not give the server a fetchable page), it is used as the page text instead of fetching — the same rule as `POST /api/sources/webpage`.
+
+**Response 201:**
+```json
+{
+  "source": { "id": "src_d4e5f6", "type": "pptx", "title": "Lesson 1 slides", "url": "https://example.org/lesson1.pptx", "pageCount": null, "slideCount": 8, "chunkCount": 24, "createdAt": "2026-10-14T10:05:00.000Z", "sizeLabel": "8 slides" },
+  "share": { "id": "shr_1a2b3c", "kind": "file", "url": "https://example.org/lesson1.pptx", "sourceId": "src_d4e5f6", "createdAt": "2026-10-14T10:05:00.000Z" }
+}
+```
+- `kind`: `"file" | "site"`. Each share creates a new source (no URL de-duplication); the client may de-dupe by `url` before calling.
+- The result is a normal source: listable, organizable, citable, and scoped like any other.
+
+**Errors:** 400 `VALIDATION_ERROR`, 400 `INVALID_URL`, 400 `UNSUPPORTED_FILE`, 400 `EMPTY_CONTENT`, 413 `FILE_TOO_LARGE`, 502 `FETCH_FAILED`, 502 `NIM_ERROR`, 503 `CHROMA_UNAVAILABLE`.
+
+## `POST /api/viewer/:sourceId/document` — `Status: planned (Wave 4)`
+
+Serve the **extracted** document for in-app viewing (`frontend/viewer.html` + `js/components/file-viewer.js`). Original binaries are not retained (see README "Storage architecture"), so the viewer renders the stored per-page/per-slide text, not the original bytes.
+
+**Auth:** required. Ownership is enforced (another user's source → `404`).
+
+**Request:** body optional/ignored.
+
+**Response 200:**
+```json
+{
+  "document": {
+    "sourceId": "src_a1b2c3",
+    "type": "pdf",
+    "title": "chapter3.pdf",
+    "viewable": true,
+    "pageCount": 14,
+    "slideCount": null,
+    "segments": [
+      { "index": 0, "location": { "page": 1 }, "text": "…extracted page text…" }
+    ]
+  }
+}
+```
+- `segments` are ordered; `location` uses the same shapes as the Citation schema (`{page}` / `{slide}` / `{paragraph}` / `{timestamp}`).
+- `viewable: false` (with an empty `segments`) when a source has no stored text; the frontend shows a "nothing to display" state rather than an error.
+
+**Errors:** 404 `SOURCE_NOT_FOUND`, 500 `INTERNAL`.
+
+## `POST /api/media/youtube` — `Status: planned (Wave 4)`
+
+YouTube URL → transcript → chunks → a searchable, citable source. The **server** (not the browser) fetches the transcript and embeds it.
+
+**Auth:** required.
+
+**Request:**
+```json
+{ "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "optional override" }
+```
+- `url`: required YouTube `watch?v=`/`youtu.be`/`shorts` URL (`INVALID_URL` otherwise).
+- `title`: optional, ≤160 chars (defaults to the video title).
+
+**Response 201:**
+```json
+{
+  "source": { "id": "src_9h8g7f", "type": "youtube", "title": "Cell division explained", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "pageCount": null, "slideCount": null, "durationSeconds": 512, "chunkCount": 18, "createdAt": "2026-10-14T10:10:00.000Z", "sizeLabel": "8:32 video" }
+}
+```
+- Citations from this source carry `"type": "youtube"` and `"location": { "timestamp": "03:12" }`.
+
+**Errors:** 400 `INVALID_URL`, 400 `VALIDATION_ERROR`, 422 `NO_TRANSCRIPT`, 502 `FETCH_FAILED`, 502 `NIM_ERROR`, 503 `CHROMA_UNAVAILABLE`.
+
+## `POST /api/media/ocr` — `Status: planned (Wave 4)`
+
+Image → text (whiteboard photos, textbook pages, screenshots).
+
+**Auth:** required.
+
+**Request:** `multipart/form-data`, one file field `file`. Allowed image types: `.png`, `.jpg`, `.jpeg`, `.webp`. Max size `MAX_UPLOAD_MB` (default 25 MB). Optional form field `ingest=1` to also store the text as a source.
+
+**Response 200** (no `ingest`):
+```json
+{ "text": "…recognised text…", "charCount": 1234, "language": "en", "confidence": 0.93 }
+```
+**Response 201** (with `ingest=1`): `{ "text": "…", "charCount": 1234, "source": { /* source shape */ } }`.
+- `confidence` is optional (0–1) and may be omitted when the OCR engine does not report one.
+
+**Errors:** 400 `VALIDATION_ERROR`, 400 `UNSUPPORTED_FILE`, 400 `EMPTY_CONTENT`, 413 `FILE_TOO_LARGE`, 422 `OCR_FAILED`, 502 `NIM_ERROR`.
+
+## `GET /api/events` — `Status: planned (Wave 4)`
+
+The activity feed / study history, read from the `activity` table (the same rows `GET /api/learner/progress` summarises in `recentActivity`).
+
+**Auth:** required.
+
+**Query:** `?limit=20&type=quiz,upload&since=2026-10-01T00:00:00.000Z&cursor=`
+- `limit`: optional integer 1–100, default 20.
+- `type`: optional comma-separated filter.
+- `since`: optional ISO-8601 timestamp (exclusive lower bound).
+- `cursor`: optional opaque pagination cursor from a previous response.
+
+**Response 200:**
+```json
+{
+  "events": [
+    { "id": 42, "type": "quiz", "topic": "photosynthesis", "detail": "3/5 correct (60%)", "sessionId": "ses_ab12cd", "at": "2026-10-12T17:30:00.000Z" }
+  ],
+  "nextCursor": null
+}
+```
+- `type` values today: `upload`, `quiz`, `question`, `session`, `organize`, `deck-failed`. Wave 4 may add `share`, `media`, `viewer`.
+- Newest first. `nextCursor` is `null` on the last page.
+
+**Errors:** 400 `VALIDATION_ERROR` (bad `limit`/`type`/`since`/`cursor`), 500 `INTERNAL`.
+
+---
+
+## Changelog — v1.0 → v2.0
+
+| Version | Date | Added |
+|---|---|---|
+| v1.0 | 2026-10-12 | Base API: `GET /api/health`; sources (upload / webpage / list); grounded tutor; quiz generate + answer; `GET /api/learner/progress`; flashcards; deterministic learner model; mock mode; verified NIM model config. |
+| v1.1 | 2026-10-13 | Study sessions + organisation (`/api/sessions`, `PATCH /api/sources/:id`, suggest/accept organisation); persistent flashcard decks (`/api/decks`, `PATCH /api/decks/:deckId/cards/:idx`). |
+| v1.2 | 2026-10-13 | Retrieval quality & evidence discipline: evidence floor, `weakEvidence`, retrieved-passage dedup, embedding-model guard. |
+| v1.3 | 2026-10-13 | Vector-store fallback selection (`vectorProvider`), cold-start demo seeding, `checks.chroma.backend`. |
+| v1.4 | 2026-10-13 | Learner profile + conversational onboarding + personalisation (`/api/profile`, `/api/onboarding/*`, tutor `approach`). |
+| v1.5 | 2026-10-13 | Study-planning tutor intents, auto practice decks, engine metadata (`checks.sqlite.backend`, `checks.limits`). |
+| v1.6 | 2026-10-13 | Real user accounts (Supabase Auth), per-user ownership, `supabase`/`prototype` modes, `401 UNAUTHENTICATED`, `/api/auth/login|refresh`, extension relevance/briefing. |
+| **v2.0** | **2026-10-14** | Title corrected to v2.0; "How to read this file", Authentication & ownership, Versioning & compatibility, and Extension contract sections added; Wave 4 endpoints specified as **planned** (adaptive levels 1–4, planner, advice, share, viewer, media YouTube/OCR, events); new error codes `FETCH_FAILED`, `NO_TRANSCRIPT`, `OCR_FAILED`; v1.0 non-goals updated to current truth. |

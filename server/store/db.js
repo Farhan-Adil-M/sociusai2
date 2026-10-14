@@ -37,7 +37,9 @@ export const SCHEMA_SQL = `
     tags_json   TEXT NOT NULL DEFAULT '[]',
     org_source  TEXT NOT NULL DEFAULT 'manual',
     manual_override INTEGER NOT NULL DEFAULT 0,
-    suggestion_json TEXT
+    suggestion_json TEXT,
+    level       INTEGER NOT NULL DEFAULT 1,
+    source_kind TEXT NOT NULL DEFAULT 'pdf'
   );
   CREATE TABLE IF NOT EXISTS source_segments (
     source_id  TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
@@ -72,6 +74,8 @@ export const SCHEMA_SQL = `
     correct_choice_id TEXT NOT NULL,
     explanation       TEXT NOT NULL DEFAULT '',
     citations_json    TEXT NOT NULL DEFAULT '[]',
+    difficulty        INTEGER NOT NULL DEFAULT 1,
+    estimated_minutes INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (quiz_id, idx)
   );
   CREATE TABLE IF NOT EXISTS quiz_attempts (
@@ -118,6 +122,9 @@ export const SCHEMA_SQL = `
     citations_json TEXT NOT NULL DEFAULT '[]',
     status         TEXT NOT NULL DEFAULT 'new',
     reviewed_at    TEXT,
+    review_count   INTEGER NOT NULL DEFAULT 0,
+    ease           REAL NOT NULL DEFAULT 2.5,
+    due_at         TEXT,
     PRIMARY KEY (deck_id, idx)
   );
 
@@ -144,9 +151,60 @@ export const SCHEMA_SQL = `
     weight      INTEGER NOT NULL DEFAULT 1,
     at          TEXT NOT NULL
   );
+
+  -- v8: Wave 4 feature tables (media, shares, conversions, adaptive levels).
+  -- status on media_assets is the transcript status for youtube rows and the
+  -- OCR status for image rows. source_conversions records DOCX/PDF/PPT to
+  -- normalised text/docx conversions per source.
+  CREATE TABLE IF NOT EXISTS source_conversions (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL DEFAULT 'default',
+    source_id     TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    target_format TEXT NOT NULL DEFAULT 'text',
+    status        TEXT NOT NULL DEFAULT 'pending',
+    output_path   TEXT,
+    char_count    INTEGER NOT NULL DEFAULT 0,
+    error         TEXT,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS difficulty_levels (
+    user_id          TEXT NOT NULL DEFAULT 'default',
+    topic            TEXT NOT NULL DEFAULT '',
+    level            INTEGER NOT NULL DEFAULT 1,
+    mastery          REAL NOT NULL DEFAULT 0,
+    last_assessed_at TEXT,
+    updated_at       TEXT NOT NULL,
+    PRIMARY KEY (user_id, topic)
+  );
+  CREATE TABLE IF NOT EXISTS shares (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL DEFAULT 'default',
+    session_id TEXT REFERENCES study_sessions(id) ON DELETE SET NULL,
+    source_id  TEXT,
+    url        TEXT NOT NULL,
+    title      TEXT,
+    kind       TEXT NOT NULL DEFAULT 'webpage',
+    status     TEXT NOT NULL DEFAULT 'pending',
+    error      TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS media_assets (
+    id               TEXT PRIMARY KEY,
+    user_id          TEXT NOT NULL DEFAULT 'default',
+    source_id        TEXT,
+    kind             TEXT NOT NULL DEFAULT 'youtube',
+    url              TEXT,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    duration_seconds INTEGER,
+    text_chars       INTEGER NOT NULL DEFAULT 0,
+    error            TEXT,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+  );
 `;
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 // ---- versioned, additive, idempotent migrations (single source of truth) ----
 // One surgical mirror of stores/sqlite.js's migrate() chain (v2..v6), written
@@ -288,6 +346,70 @@ export async function runMigrations(engine, { dbPath } = {}) {
     await engine.exec('DROP TABLE learner_profile;');
     await engine.exec('ALTER TABLE learner_profile_v7 RENAME TO learner_profile;');
   }
+
+  // ---- v8: Wave 4 feature tables + adaptive/media metadata (additive) --------
+  // The four new tables (source_conversions, difficulty_levels, shares,
+  // media_assets) are created by SCHEMA_SQL's CREATE TABLE IF NOT EXISTS above
+  // on every engine, fresh or existing. Scalar columns on existing tables use
+  // the same addColumnIfMissing helper as v2–v6. deck_cards already holds live
+  // review state, so its three spaced-repetition columns are added with v7's
+  // rebuild idiom (copy → drop → rename) on the local engine, preserving the
+  // composite primary key and every row; other engines get the same columns
+  // via addColumnIfMissing. Everything here is additive and safe to re-run.
+  await addColumnIfMissing(engine, 'sources', 'level', 'level INTEGER NOT NULL DEFAULT 1');
+  await addColumnIfMissing(engine, 'sources', 'source_kind', "source_kind TEXT NOT NULL DEFAULT 'pdf'");
+  await addColumnIfMissing(engine, 'quiz_questions', 'difficulty', 'difficulty INTEGER NOT NULL DEFAULT 1');
+  await addColumnIfMissing(engine, 'quiz_questions', 'estimated_minutes', 'estimated_minutes INTEGER NOT NULL DEFAULT 0');
+
+  if (engine.kind === 'node' && version < 8) {
+    const cardCols = new Set((await engine.all('PRAGMA table_info(deck_cards)')).map((c) => c.name));
+    if (!cardCols.has('due_at')) {
+      if (dbPath && fs.existsSync(dbPath) && !fs.existsSync(`${dbPath}.v7.bak`)) {
+        try { fs.copyFileSync(dbPath, `${dbPath}.v7.bak`); } catch { /* read-only fs */ }
+      }
+      await engine.exec(`CREATE TABLE deck_cards_v8 (
+        deck_id        TEXT NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+        idx            INTEGER NOT NULL,
+        front          TEXT NOT NULL,
+        back           TEXT NOT NULL,
+        citations_json TEXT NOT NULL DEFAULT '[]',
+        status         TEXT NOT NULL DEFAULT 'new',
+        reviewed_at    TEXT,
+        review_count   INTEGER NOT NULL DEFAULT 0,
+        ease           REAL NOT NULL DEFAULT 2.5,
+        due_at         TEXT,
+        PRIMARY KEY (deck_id, idx)
+      );`);
+      await engine.exec(`INSERT INTO deck_cards_v8 (deck_id, idx, front, back, citations_json, status, reviewed_at)
+        SELECT deck_id, idx, front, back, citations_json, status, reviewed_at FROM deck_cards;`);
+      await engine.exec('DROP TABLE deck_cards;');
+      await engine.exec('ALTER TABLE deck_cards_v8 RENAME TO deck_cards;');
+    }
+  }
+
+  // deck_cards spaced-repetition columns (no-op where the rebuild above or the
+  // fresh SCHEMA_SQL already supplied them).
+  await addColumnIfMissing(engine, 'deck_cards', 'review_count', 'review_count INTEGER NOT NULL DEFAULT 0');
+  await addColumnIfMissing(engine, 'deck_cards', 'ease', 'ease REAL NOT NULL DEFAULT 2.5');
+  await addColumnIfMissing(engine, 'deck_cards', 'due_at', 'due_at TEXT');
+
+  // Backfill source_kind for rows written before the column existed (type is
+  // the legacy discriminator; only the untouched default is corrected).
+  await engine.run("UPDATE sources SET source_kind = type WHERE source_kind = 'pdf' AND type IN ('pptx','docx','webpage','youtube','image')");
+
+  // v8 indexes — per-user lookups for the new feature tables, due-card queries,
+  // and source-kind filtering. IF NOT EXISTS keeps the block re-runnable.
+  const sourceCols = new Set((await engine.all('PRAGMA table_info(sources)')).map((c) => c.name));
+  await engine.exec(`CREATE INDEX IF NOT EXISTS idx_source_conversions_user ON source_conversions(user_id, source_id);
+    CREATE INDEX IF NOT EXISTS idx_difficulty_levels_user ON difficulty_levels(user_id, last_assessed_at);
+    CREATE INDEX IF NOT EXISTS idx_shares_user ON shares(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_shares_session ON shares(session_id);
+    CREATE INDEX IF NOT EXISTS idx_media_assets_user ON media_assets(user_id, kind);
+    CREATE INDEX IF NOT EXISTS idx_media_assets_source ON media_assets(source_id);
+    CREATE INDEX IF NOT EXISTS idx_deck_cards_due ON deck_cards(due_at);`);
+  await engine.exec(sourceCols.has('user_id')
+    ? 'CREATE INDEX IF NOT EXISTS idx_sources_kind ON sources(user_id, source_kind);'
+    : 'CREATE INDEX IF NOT EXISTS idx_sources_kind ON sources(source_kind);');
 
   if (version < CURRENT_SCHEMA_VERSION) {
     await engine.run(

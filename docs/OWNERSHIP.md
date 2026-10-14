@@ -41,7 +41,7 @@ Everything is world-readable. Ownership controls **writes only**.
 | ID | Owns | Responsibility |
 |---|---|---|
 | **A01** | `frontend/css/base.css`, `frontend/css/components.css`, `docs/ARCHITECTURE.md` | Design system primitives: reset, typography scale, buttons, inputs, cards, badges, tables, utilities. One CSS system that **replaces** the old 4,824-line `redesign.css` pile. |
-| **A02** | `frontend/js/components/shell.js`, `frontend/js/ui.js`, `docs/GLOSSARY.md` | Single app shell: sidebar, topbar, mobile menu, health pill, route mounting. `ui.js` = shared render helpers (icons, citations, spinners, toasts, empty/error states). |
+| **A02** | `frontend/js/components/shell.js`, `frontend/js/ui.js`, **`frontend/css/shell.css`** (added P0 — A01 flagged it had no owner; sidebar/topbar were unstyled), `docs/GLOSSARY.md` | Single app shell: sidebar, topbar, mobile menu, health pill, route mounting. `ui.js` = shared render helpers (icons, citations, spinners, toasts, empty/error states). |
 | **A03** | `frontend/js/auth.js`, `frontend/js/api.js` | Auth session (Supabase + prototype), `#socius_session` handoff, token refresh, the **only** `fetch` caller in the app, mock mode `?mock=1`. |
 | **A04** | `server/app.js`, `server/index.js`, `server/config.js`, `server/constants.js`, `server/middleware/errors.js`, `package.json`, `vercel.json` | Server bootstrap, DI seam `createApp({db,ai,vector,auth})`, health, config, error envelope, npm scripts. |
 | **A05** | `docs/API_CONTRACT.md`, `README.md` | Contract v2 — request/response shapes for **every** endpoint including the new media/adaptive/share ones. Source of truth for frontend↔backend. |
@@ -77,7 +77,7 @@ They may **read** `shell.js`, `ui.js`, `api.js`, `auth.js`, `tokens.css`, `compo
 
 | ID | Owns |
 |---|---|
-| **A21** | `frontend/index.html`, `frontend/js/pages/landing.js`, `frontend/css/landing.css` — pixel-art identity, pink/blue/white |
+| **A21** | `frontend/index.html`, `frontend/js/pages/landing.js`, `frontend/css/landing.css` — pixel-art identity, pink/blue/white · **PLUS entry/auth pages**: `frontend/login.html`, `frontend/js/pages/login.js`, `frontend/css/login.css` (added P0: was unassigned — `auth.js#LOGIN_PATH` redirects to `login.html`) |
 | **A22** | `frontend/dashboard.html`, `frontend/js/pages/dashboard.js`, `frontend/css/dashboard.css` |
 | **A23** | `frontend/library.html`, `frontend/js/pages/library.js`, `frontend/css/library.css` |
 | **A24** | `frontend/session.html`, `frontend/js/pages/session.js`, `frontend/css/session.css` |

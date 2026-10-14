@@ -10,7 +10,9 @@
   "scripts": {
     "start": "node --env-file=.env server/index.js",
     "dev": "node --watch --env-file=.env server/index.js",
+    "dev:ext": "node --watch --env-file=.env server/index.js",
     "test": "node --test tests/",
+    "lint": "sh -c 'for d in server frontend/js; do [ -d \"$d\" ] || continue; find \"$d\" -name \"*.js\" -type f -print0 | xargs -0 -r -n1 node --check || exit 1; done'",
     "e2e": "node --env-file=.env scripts/e2e-smoke.mjs",
     "reindex": "node --env-file=.env scripts/reindex.js",
     "eval": "node --env-file=.env scripts/eval-retrieval.mjs",

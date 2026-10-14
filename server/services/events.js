@@ -2,10 +2,18 @@
 // server records about how a learner studies (quiz results, flashcard
 // reviews, teaching-approach switches, recoveries). Events never touch
 // learner_topics mastery. Everything here is deterministic and pure except
-// the three functions that take `db`.
+// the functions that take `db`.
+//
+// There are TWO recorders here, and they must not be confused:
+//   - `recordEvent`      → the `learning_events` table. EVIDENCE. It feeds
+//                          mastery maths, so weights matter.
+//   - `recordStudyEvent` → the `activity` table. HISTORY. What the learner
+//                          did, newest first — the feed /api/learner/progress
+//                          returns as `recentActivity`. Generating a quiz is
+//                          something that happened, not evidence of knowing.
 
 import { ApiError } from '../middleware/errors.js';
-import { nowIso, parseJsonObject } from '../store/sqlite.js';
+import { nowIso, parseJsonObject, logActivity } from '../store/sqlite.js';
 
 // Quiz answers are stronger evidence than flashcard reviews (deliberate).
 export const EVENT_WEIGHTS = {
@@ -38,6 +46,50 @@ export async function recordEvent(db, { kind, topic = null, detail = {}, userId 
   await db.run('INSERT INTO learning_events (kind, topic, detail_json, weight, at, user_id) VALUES (?, ?, ?, ?, ?, ?)',
     kind, cleanTopic(topic), JSON.stringify(detail ?? {}), weight, at, userId);
   return { kind, weight, at };
+}
+
+// ---- study history (the activity feed) --------------------------------------
+
+// The canonical study-history event types the learner model reads. One row per
+// thing the learner actually did. These live in `activity`, NOT in
+// `learning_events`, because generating a quiz or opening a session is history,
+// not evidence — putting it in the evidence table would let it leak into
+// mastery maths and into the tutor's confusion signals.
+//
+// Callers (one line each; see docs/HANDOFF.md for the emit sites this wave does
+// not own):
+//   source_uploaded — sources route, after a source is stored
+//   session_opened  — sessions route, when a learner opens a study session
+//   tutor_asked     — tutor route, after answering a question
+//   quiz_generated  — quiz route, when a quiz is created
+//   quiz_answered   — quiz route, alongside the existing quiz_result evidence
+//   card_reviewed   — decks route, alongside the existing card_* evidence
+//   level_changed   — adaptive route, when the difficulty level moves
+export const STUDY_EVENT_TYPES = Object.freeze([
+  'source_uploaded',
+  'session_opened',
+  'tutor_asked',
+  'quiz_generated',
+  'quiz_answered',
+  'card_reviewed',
+  'level_changed',
+]);
+
+/**
+ * Record one study-history row. `detail` is a short human-readable summary
+ * (the same shape every existing activity row uses, e.g. "3/3 correct"),
+ * because the feed renders it as-is.
+ *
+ * @returns {{type: string, topic: string|null, detail: string}}
+ */
+export async function recordStudyEvent(db, { type, topic = null, detail = '', sessionId = null, userId = 'default' } = {}) {
+  if (!STUDY_EVENT_TYPES.includes(type)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', `Unknown study event type "${type}".`);
+  }
+  const summary = typeof detail === 'string' ? detail.trim().slice(0, 300) : '';
+  const key = cleanTopic(topic);
+  await logActivity(db, type, key, summary, sessionId, userId);
+  return { type, topic: key, detail: summary };
 }
 
 // ---- repeated-question detection (pure) -------------------------------------

@@ -1,0 +1,424 @@
+/* =============================================================================
+   Socius2 — App shell chrome
+   The frame every interior page sits inside: the sidebar, the topbar, and the
+   content slot. Written for the exact markup `js/components/shell.js` renders —
+   if shell.js does not emit a class, this file does not style it.
+
+   Load order:  tokens.css → base.css → components.css → shell.css → <page>.css
+
+   Reused, never redefined here (owned by components.css):
+     .skip-link  .scrim  .badge  .demo-badge  .status-dot  .avatar  .btn*
+     .spacer  .container  .stack*  .cluster*
+
+   Layout, in one sentence: `#app-shell` is a two-column grid — a 244px rail and
+   the content column — and below 900px the rail leaves the flow and becomes an
+   off-canvas drawer over a `.scrim`. The rail is pinned with `position: sticky`
+   rather than `position: fixed` on purpose: it behaves identically for the
+   reader (it never scrolls away), but the document keeps scrolling normally, so
+   anchor links, in-page search, `scroll-margin-top` and browser scroll
+   restoration all keep working. A fixed rail would need the content column to
+   become its own scroll container, which breaks those four things.
+
+   Value rules (same as A01's sheets): every colour, space, radius, shadow,
+   duration and z-index is a var(--token); raw px is used only for control
+   dimensions and border widths.
+   ========================================================================== */
+
+/* ===========================================================================
+   1 · FRAME
+   ======================================================================== */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg-page);
+}
+
+/* The content column: topbar on top, page content filling the rest.
+   `min-width: 0` stops a wide table or a long word from blowing out the grid. */
+.app-shell__content {
+  display: flex;
+  flex-direction: column;
+  grid-column: 2;
+  min-width: 0;
+}
+
+/* ===========================================================================
+   2 · SIDEBAR
+   Scoped to `.app-shell >` everywhere below. components.css also ships a
+   `.sidebar` for an in-content side panel (`.sidebar-layout > .sidebar`, e.g. a
+   sticky "on this page" list). That one is a different thing and must keep its
+   own styling, so nothing here may target a bare `.sidebar`.
+   ======================================================================== */
+
+.app-shell > .sidebar {
+  display: flex;
+  flex-direction: column;
+  grid-column: 1;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh;
+  /* The nav is long on purpose (nine destinations). On a short window it
+     scrolls itself instead of pushing the account block off-screen, and
+     `contain` stops that scroll from chaining to the page behind it. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-inline-end: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+/* ---- brand: sits level with the topbar, so the two bottom borders read as
+   one continuous rule across the whole shell. ---- */
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: var(--topbar-h);
+  padding-inline: var(--s4);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  color: var(--fg-strong);
+  text-decoration: none;
+}
+/* Beats base.css's `a:hover { color: var(--blue-hover) }`, so the wordmark
+   stays ink on hover while the mark itself carries the colour. */
+.brand:hover { color: var(--fg-strong); }
+
+.brand__mark { flex: none; color: var(--blue); }
+
+.brand__name {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+  white-space: nowrap;
+}
+
+/* ---- navigation ---- */
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  flex: none;
+  padding: var(--s3);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-md);
+  color: var(--fg-default);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  text-decoration: none;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+/* The icon is secondary information: muted at rest, inherited when current. */
+.nav-item .icon {
+  color: var(--fg-muted);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.nav-item__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+}
+.nav-item:hover .icon { color: var(--fg-strong); }
+
+/* The current page. Unmistakable, and still quiet: a soft blue wash, a 3px
+   rail on the reading edge, and the label stepping up one font weight. No
+   filled blue block — this is a study tool, not a marketing page.
+   `aria-current="page"` is the source of truth (it is what assistive tech
+   reads); `.is-active` is the same hook for markup that has no aria-current.
+   Deliberately declared AFTER :hover so it also wins while hovered (equal
+   specificity, so source order decides). */
+.nav-item[aria-current="page"],
+.nav-item.is-active {
+  background: var(--blue-soft);
+  box-shadow: inset 3px 0 0 var(--blue);
+  color: var(--blue-ink);
+  font-weight: var(--fw-semibold);
+}
+.nav-item[aria-current="page"] .icon,
+.nav-item.is-active .icon { color: var(--blue); }
+
+/* ---- footer: demo marker, who is signed in, sign out ---- */
+
+.sidebar__footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  flex: none;
+  margin-top: auto;
+  padding: var(--s3);
+  border-top: 1px solid var(--border);
+}
+
+/* In a column flex container a child stretches to full width; the badge is a
+   label, not a button, so it keeps its own size. */
+.demo-badge { align-self: flex-start; }
+
+.sidebar__account {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  padding: var(--s1) var(--s2);
+  border-radius: var(--r-md);
+  color: var(--fg-default);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+
+/* Signed out, this row is a link to the sign-in page, so it reads as one.
+   Declared after `.account` so it wins; the icon inherits currentColor. */
+.account--signed-out { color: var(--blue-ink); }
+.account--signed-out:hover {
+  background: var(--bg-hover);
+  color: var(--blue-hover);
+}
+
+.account__name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--fw-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Carries .btn.btn-ghost.btn-sm; laid out like a nav row so the sidebar's
+   bottom block reads as part of the same list. */
+.account__signout {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/* ===========================================================================
+   3 · TOPBAR
+   ======================================================================== */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  flex: none;
+  height: var(--topbar-h);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+/* Centred like the content column, so the section name lines up with the page
+   title below it and the health pill lines up with the content's right edge. */
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  max-width: var(--shell-max);
+  height: 100%;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* Hamburger. Hidden from 900px up: the rail is always on screen there. */
+.nav-toggle {
+  display: none;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-inline-start: calc(var(--s2) * -1);
+  border-radius: var(--r-md);
+  color: var(--fg-strong);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.nav-toggle:hover { background: var(--bg-hover); }
+
+/* Which section you are in. Truncates rather than pushing the health pill out;
+   on the phone the longest label ("Learning Progress") is the first to give. */
+.topbar__section {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-strong);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- health pill ----------------------------------------------------------
+   Restrained by design: when everything is fine it is a quiet outlined chip
+   whose green dot carries the meaning, because a permanent green banner
+   shouting "OK" is noise. Only a real problem tints the pill, so amber and
+   red are the only colours that ever catch the eye.
+
+   States come from shell.js as [data-state="pending|ok|degraded|down"]; the
+   dot itself is components.css `.status-dot` (+ .is-warn/.is-down/.is-idle).
+   The sqlite/chroma/ai detail is a `.sr-only` list inside the pill plus the
+   `title` tooltip, so it is never lost, just not shouted.
+   ------------------------------------------------------------------------- */
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: none;
+  padding: var(--s1) var(--s3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-snug);
+  white-space: nowrap;
+}
+
+.status-pill__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-pill[data-state="pending"] { color: var(--fg-subtle); }
+
+.status-pill[data-state="degraded"] {
+  border-color: var(--amber-line);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.status-pill[data-state="down"] {
+  border-color: var(--red-line);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+/* ===========================================================================
+   4 · CONTENT SLOT
+   `.app-main` is the page's own <main>, adopted and classed by shell.js. It is
+   the skip-link target, so it is focusable and carries the scroll offset that
+   base.css gives every [id] — restated here because it is a real requirement
+   of this element, not an accident of its id.
+   ======================================================================== */
+
+.app-main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--shell-max);
+  margin-inline: auto;
+  padding: var(--s6) var(--gutter) var(--s8);
+  scroll-margin-top: calc(var(--topbar-h) + var(--s4));
+}
+
+/* ARCHITECTURE §7 tells page authors to wrap content in `.container`. This
+   column already IS one, so a nested one must not add a second gutter.
+   Descendant (not child) on purpose: a page may put its `.container` inside a
+   wrapper such as `.stack`. `.container-narrow` keeps its reading width — it
+   just loses the duplicated padding, so a narrow column still centres. */
+.app-main .container {
+  max-width: none;
+  padding-inline: 0;
+}
+
+.app-main .container-narrow { max-width: var(--measure); }
+
+/* ===========================================================================
+   5 · MOBILE — off-canvas drawer
+   `shell.js` closes the drawer at exactly `matchMedia('(min-width: 900px)')`,
+   so 899.98px is the exact complement: no 1px dead zone where both or neither
+   rule applies.
+   ======================================================================== */
+
+@media (max-width: 899.98px) {
+  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  .app-shell__content { grid-column: 1; }
+
+  .nav-toggle { display: grid; }
+
+  /* The rail leaves the flow and slides in from the reading edge.
+     `visibility` (not `display`) does the hiding: the slide-out needs the
+     element to stay rendered, and a visibility-hidden drawer keeps its links
+     out of the tab order, so the shell's Tab trap and Escape handling stay the
+     only keyboard paths into it. */
+  .app-shell > .sidebar {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: var(--z-modal);
+    width: var(--sidebar-w);
+    max-width: 86vw;
+    height: 100dvh;
+    box-shadow: var(--shadow-2);
+    visibility: hidden;
+    transform: translateX(-100%);
+    transition:
+      transform var(--dur-base) var(--ease-out),
+      visibility 0s linear var(--dur-base);
+  }
+
+  .app-shell > .sidebar.is-open {
+    visibility: visible;
+    transform: none;
+    transition:
+      transform var(--dur-base) var(--ease-out),
+      visibility 0s;
+  }
+
+  /* A01's `.scrim` supplies the backdrop; shell.js supplies the `hidden`
+     attribute. Opening is animated with a keyframe rather than a transition:
+     an element coming back from `display: none` has no previous computed style
+     to transition from, but its animations do run. Closing is instant — the
+     sliding rail is the motion that reads. */
+  .app-shell .scrim { animation: shell-scrim-in var(--dur-base) var(--ease-out); }
+
+  /* No scrolling the page behind an open drawer. Expressed with :has() so the
+     shell needs no second class on <body>. */
+  body:has(.app-shell.nav-open) { overflow: hidden; }
+}
+
+/* From 900px up the rail is in the flow and there is nothing to dim. */
+@media (min-width: 900px) {
+  .app-shell .scrim { display: none; }
+}
+
+@keyframes shell-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Phones: less air above and below the content, so the first card is visible
+   without scrolling on a small screen. */
+@media (max-width: 720px) {
+  .app-main { padding-block: var(--s5) var(--s7); }
+}
