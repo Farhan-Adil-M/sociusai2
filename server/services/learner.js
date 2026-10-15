@@ -355,15 +355,58 @@ export async function summarizeMastery(db, { userId = 'default' } = {}) {
  *   masteryDelta: number|null}} — `before`/`after` are the accessor records;
  *   `masteryDelta` is null on the first assessment (contract: masteryBefore null).
  */
-export async function updateMasteryLevel(db, { userId = 'default', topic, now = Date.now() } = {}) {
+/**
+ * The newest timestamp carried by the evidence rows, or `Date.now()` when none
+ * of them has one.
+ *
+ * This — not the wall clock — is what recency decay is measured against when
+ * the caller does not inject a `now`. Recency decay's job is to weigh a topic's
+ * RECENT history above its stale history (the spaced-repetition semantic); it
+ * is not meant to make the level depend on the millisecond the recompute
+ * happened to run. Anchoring to the clock did exactly that: every weight
+ * carries the decay factor, so a mastery sitting on one of the frozen
+ * LEVEL_THRESHOLDS was nudged below it by the microseconds that elapsed since
+ * the attempt, and the learner's level flipped between recomputes of
+ * identical evidence:
+ *
+ *   same 4-of-5 attempt, ten recomputes -> 3,4,4,3,3,3,4,4,4,4
+ *
+ * Anchoring to the newest row instead makes mastery a pure function of the
+ * stored evidence, which is what inferMastery's contract already claimed.
+ * `difficulty_levels` is only rewritten on a graded attempt, so wall-clock
+ * decay never actually aged stored mastery anyway — it bought nothing while
+ * costing reproducibility.
+ *
+ * Never returns NaN: a non-finite `now` makes every observation's weight NaN,
+ * every row gets skipped, and a well-evidenced topic reports unassessed (the
+ * separate defect pinned in "a non-date now hides a well-evidenced topic").
+ * Rows with no parseable timestamp still get decay 1 — the documented
+ * "unknown age counts fully" rule.
+ */
+function newestObservedAt(evidence) {
+  let newest = NaN;
+  for (const item of evidence) {
+    const raw = item?.at;
+    const time = raw == null ? NaN : (typeof raw === 'number' ? raw : Date.parse(raw));
+    if (Number.isFinite(time) && (!Number.isFinite(newest) || time > newest)) newest = time;
+  }
+  return Number.isFinite(newest) ? newest : Date.now();
+}
+
+export async function updateMasteryLevel(db, { userId = 'default', topic, now } = {}) {
   const key = normalizeTopic(topic);
   if (!key) throw new ApiError(400, 'VALIDATION_ERROR', 'A topic is required.');
-  const nowMs = typeof now === 'number' ? now : Date.parse(now);
+  const nowMs = typeof now === 'number' ? now : (now == null ? NaN : Date.parse(now));
+  // `at` is bookkeeping: when this row was written, and what summarizeMastery
+  // orders by. It stays on the wall clock unless the caller pinned a time.
   const at = new Date(Number.isFinite(nowMs) ? nowMs : Date.now()).toISOString();
 
   const before = await getTopicMastery(db, { userId, topic: key });
   const evidence = await collectTopicEvidence(db, { userId, topic: key });
-  const inferred = inferMastery(evidence, { now: nowMs });
+  // The DECAY reference is a different matter — see newestObservedAt above.
+  // An explicitly injected `now` still wins, so callers can pin the clock.
+  const referenceMs = now == null ? newestObservedAt(evidence) : nowMs;
+  const inferred = inferMastery(evidence, { now: referenceMs });
 
   if (!inferred.hasEvidence) {
     // No evidence → unassessed. Remove any stale cached row so the model never

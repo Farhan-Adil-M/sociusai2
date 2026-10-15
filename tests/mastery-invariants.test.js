@@ -633,13 +633,19 @@ test('the learner model uses the weighted mastery, not the naive ratio', async (
 // 5. FILED DEFECT — updateMasteryLevel reads Date.now()
 // ============================================================================
 
-test('FILED DEFECT (not fixed): the omitted now reads the wall clock', async (t) => {
-  // DEFECT, filed in docs/HANDOFF.md, deliberately NOT fixed here (this file
-  // may not modify server code): `updateMasteryLevel(db, { userId, topic,
-  // now = Date.now() })`, and services/adaptive.js#recordAdaptiveAttempt calls
-  // it WITHOUT `now` — so the recompute is anchored to whatever the clock says
-  // at request time instead of to the attempt being graded. This test observes
-  // that dependence; the injected alternative is pinned in the next test.
+test('with no injected now, the written timestamp still comes from the wall clock', async (t) => {
+  // `updateMasteryLevel` is called WITHOUT `now` by services/adaptive.js:297
+  // and routes/quiz.js:166, so the two meanings of `now` are checked
+  // separately here.
+  //
+  // The READING side (which `now` the decay is measured from) WAS a defect and
+  // is now fixed: it is the newest evidence row, not the request clock — see
+  // newestObservedAt in server/services/learner.js and the "FIXED" test below.
+  //
+  // The WRITING side asserted here is correct by design and unchanged:
+  // `lastAssessedAt` records when the row was written, and summarizeMastery
+  // orders by it, so it must track the wall clock. The injected alternative is
+  // pinned in the next test.
   const db = await tempDb(t, 'clock-read');
   const rows = [{ key: 'a', chosen: 'a', at: BASE }];
   await seedEvidence(db, { topic: 'clock topic', rows });
@@ -751,6 +757,66 @@ test('FILED DEFECT (recency rounding): 80% can be reported as level 3', async (t
   // level 3 means "below 80%".
   assert.equal(stale.after.masteryPercent, 80);
   assert.equal(stale.after.levelLabel, 'proficient');
+});
+
+test('FIXED: with no injected now, mastery is a pure function of the stored evidence', async (t) => {
+  // This is the production path. services/adaptive.js:297 and routes/quiz.js:166
+  // both call updateMasteryLevel WITHOUT `now`, so before the fix the recency
+  // decay was anchored to Date.now() at request time. Every weight carries that
+  // factor, so merely waiting a few microseconds between recomputes moved the
+  // mastery value — and because a value sitting exactly on a frozen threshold
+  // (4 correct of 5 = 0.8) gets pushed under it by any decay at all, the
+  // LEARNER'S LEVEL was a coin flip on identical evidence:
+  //
+  //   same 4-of-5 attempt, ten recomputes -> 3,4,4,3,3,3,4,4,4,4
+  //
+  // The decay reference is now the newest evidence row, so the same rows always
+  // produce the same number, whatever the clock does. An injected `now` still
+  // wins (pinned by the tests above), and `lastAssessedAt` is still written
+  // from the wall clock — that field is bookkeeping, not a computation input.
+  //
+  // The rows deliberately STRADDLE `now`. That is the whole mechanism: when
+  // every row lies in the past, advancing the clock multiplies every weight by
+  // the same factor and the ratio cancels, so nothing visibly moves. But
+  // decayFactor clamps age at 0, so a future-dated row is pinned at weight 1
+  // while the stale rows keep decaying — now the two sides of the ratio move
+  // at different rates and the value drifts with the clock.
+  const now0 = Date.now();
+  const rows = [
+    { key: 'a', chosen: 'b', at: now0 - 30 * DAY_MS },
+    { key: 'a', chosen: 'b', at: now0 - 30 * DAY_MS },
+    { key: 'a', chosen: 'a', at: now0 + 10 * DAY_MS },
+    { key: 'a', chosen: 'a', at: now0 + 10 * DAY_MS },
+    { key: 'a', chosen: 'a', at: now0 + 10 * DAY_MS },
+  ];
+  const db = await tempDb(t, 'evidence-anchored');
+  await seedEvidence(db, { topic: 'stable topic', rows });
+
+  const first = await updateMasteryLevel(db, { userId: 'default', topic: 'stable topic' });
+  assert.equal(first.after.hasEvidence, true);
+
+  const masteries = new Set([first.after.mastery]);
+  const levels = new Set([first.after.level]);
+  for (let i = 0; i < 12; i += 1) {
+    // Real elapsed wall-clock time, with no `now` supplied — exactly what a
+    // browser round trip produces.
+    await new Promise((resolve) => { setTimeout(resolve, 3); });
+    const again = await updateMasteryLevel(db, { userId: 'default', topic: 'stable topic' });
+    masteries.add(again.after.mastery);
+    levels.add(again.after.level);
+  }
+
+  assert.equal(masteries.size, 1,
+    `mastery must be bit-identical across recomputes, saw ${[...masteries].join(', ')}`);
+  assert.equal(levels.size, 1,
+    `one stable level across 13 recomputes, saw ${[...levels].join(', ')}`);
+
+  // The written timestamp is still wall-clock bookkeeping, not the decay anchor.
+  assert.ok(Date.parse(first.after.lastAssessedAt) <= Date.now() + 1000,
+    'lastAssessedAt still records when the row was written');
+  // Recency still means something: the stale wrong answers are not weighted
+  // like the fresh right ones, so this is NOT simply a naive ratio.
+  assert.ok(first.after.mastery !== 3 / 5, 'decay is applied, not ignored');
 });
 
 // ============================================================================
