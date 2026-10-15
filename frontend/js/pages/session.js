@@ -55,16 +55,18 @@ const SHARE_TEXT_MIN = 50; // only when the student pastes page text
 const SHARE_TEXT_MAX = 200000;
 
 // Source types the citation schema documents; anything unknown renders as a file.
-const SOURCE_ICONS = { pdf: 'file', pptx: 'slides', docx: 'file', webpage: 'globe', youtube: 'globe', image: 'file' };
-const SOURCE_LABELS = { pdf: 'PDF', pptx: 'Slides', docx: 'Document', webpage: 'Web page', youtube: 'Video', image: 'Image' };
-
-function sourceIcon(type) {
-  return SOURCE_ICONS[type] ?? 'file';
-}
-
-function sourceLabel(type) {
-  return SOURCE_LABELS[type] ?? 'Source';
-}
+// One map, not two: the icon and the label share a key set, and keeping them in
+// separate objects meant adding a type to one and forgetting the other, which
+// produced a badge with an icon but no text.
+const SOURCE_TYPES = {
+  pdf: { icon: 'file', label: 'PDF' },
+  pptx: { icon: 'slides', label: 'Slides' },
+  docx: { icon: 'file', label: 'Document' },
+  webpage: { icon: 'globe', label: 'Web page' },
+  youtube: { icon: 'globe', label: 'Video' },
+  image: { icon: 'file', label: 'Image' },
+};
+const sourceInfo = (type) => SOURCE_TYPES[type] ?? { icon: 'file', label: 'Source' };
 
 /* ------------------------------------------------------------------ state */
 
@@ -379,14 +381,14 @@ function sourceRow(source) {
   const passages = source.chunkCount ? plural(source.chunkCount, 'passage') : '';
   const meta = [size, passages].filter(Boolean).join(' · ');
   return `<div class="row-item">
-    <span class="row-icon" aria-hidden="true">${icon(sourceIcon(source.type), { size: 15 })}</span>
+    <span class="row-icon" aria-hidden="true">${icon(sourceInfo(source.type).icon, { size: 15 })}</span>
     <div class="row-main">
       <span class="row-title">${escapeHtml(source.title)}</span>
       <span class="row-meta">
         ${meta ? `${escapeHtml(meta)} · ` : ''}added ${timeEl(source.createdAt)}
       </span>
     </div>
-    <span class="badge">${escapeHtml(sourceLabel(source.type))}</span>
+    <span class="badge">${escapeHtml(sourceInfo(source.type).label)}</span>
   </div>`;
 }
 
@@ -459,7 +461,7 @@ function activityEntries() {
     const size = sizeLabel(source);
     entries.push({
       at: source.createdAt,
-      icon: sourceIcon(source.type),
+      icon: sourceInfo(source.type).icon,
       text: `Added ${source.title}${size ? ` (${size})` : ''}`,
     });
   }
