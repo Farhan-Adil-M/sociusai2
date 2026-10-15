@@ -197,7 +197,7 @@ function reasonFor({ mastery, total, dueCards, goal, today }) {
     // Nothing was graded, so the sentence says exactly that — and points at the
     // one thing there IS to do (the cards already says how many are due).
     const why = dueCards > 0
-      ? `No graded answers yet — ${dueCards} flashcard${dueCards === 1 ? '' : 's'} are due, so start there.`
+      ? `No graded answers yet — ${dueCards} flashcard${dueCards === 1 ? ' is' : 's are'} due, so start there.`
       : 'No graded attempts yet — start with a diagnostic quiz.';
     return `${why}${goalNote(goal, today)}`;
   }
@@ -404,7 +404,14 @@ function planRecord(raw, { recommended, horizonEnd, today }) {
   // null, never 1: levelFor(null) is 0, and 0 is not "unassessed".
   const level = mastery === null ? null : levelFor(mastery);
   const dueCards = Math.max(0, Number(raw?.dueCards) || 0);
-  const goal = raw?.goal && typeof raw.goal.deadline === 'string' && raw.goal.deadline <= horizonEnd
+  // A deadline has to LOOK like a date before it is compared. String ordering
+  // makes '' compare as earlier than every real date, so an unfilled form
+  // field would otherwise win the DEADLINE band over genuinely weak topics and
+  // print "Your goal «X» was due on ." The same case is already guarded in
+  // goalNote, and loadPlanEvidence filters with this same pattern — this is
+  // the third place it needs to hold.
+  const deadline = raw?.goal?.deadline;
+  const goal = typeof deadline === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(deadline) && deadline <= horizonEnd
     ? raw.goal
     : null;
   const activity = activityOf(mastery, dueCards);
@@ -512,6 +519,6 @@ function summaryFor({ records, horizonDays, dueTotal, goals, today }) {
   } else if (goals.length > 1) {
     parts.push(`${goals.length} goals fall inside this plan; the nearest is due on ${goals[0].deadline}.`);
   }
-  if (dueTotal > 0) parts.push(`${dueTotal} flashcard${dueTotal === 1 ? '' : 's'} are due for review.`);
+  if (dueTotal > 0) parts.push(`${dueTotal} flashcard${dueTotal === 1 ? ' is' : 's are'} due for review.`);
   return parts.join(' ');
 }

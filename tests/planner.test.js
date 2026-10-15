@@ -247,11 +247,13 @@ test('computePlan: an unassessed topic reports level null / unassessed, never a 
   assert.equal(noCards.activity, 'quiz');
   assert.match(noCards.reason, /No graded attempts yet — start with a diagnostic quiz\./);
 
-  // FILED DEFECT — see docs/HANDOFF.md: the noun is singularised ("flashcard")
-  // but the verb is not ("are"), so a one-card learner reads broken grammar.
-  // Pinned as current behaviour, not endorsed.
+  // Singular agreement on the empty-history path — this is the FIRST sentence a
+  // brand-new account ever sees, so it has to read correctly.
   const oneCard = computePlan([ev({ correct: 0, total: 0, dueCards: 1 })], 1, { now: NOW }).items[0];
-  assert.equal(oneCard.reason, 'No graded answers yet — 1 flashcard are due, so start there.');
+  assert.equal(oneCard.reason, 'No graded answers yet — 1 flashcard is due, so start there.');
+  const manyCards = computePlan([ev({ correct: 0, total: 0, dueCards: 4 })], 1, { now: NOW }).items[0];
+  assert.equal(manyCards.reason, 'No graded answers yet — 4 flashcards are due, so start there.',
+    'plural still reads "flashcards are"');
 });
 
 test('computePlan: reasons are one sentence carrying the stored evidence numbers', () => {
@@ -519,24 +521,35 @@ test('computePlan: malformed goals are ignored (missing/non-string deadline)', (
   assert.ok(!plan2.summary.includes('Bad date'), 'non-string deadline ignored');
 });
 
-test('computePlan: an EMPTY-string deadline still hijacks the plan (pinned, not endorsed)', () => {
-  // FILED DEFECT — see docs/HANDOFF.md: planRecord only checks typeof
-  // deadline === 'string', and '' <= horizonEnd is lexicographically true, so
-  // an empty deadline wins the DEADLINE band and summaryFor prints a dangling
-  // date. goalNote() defends against '' for reasons but planRecord/summaryFor
-  // do not. (The HTTP path can't trigger it — loadPlanEvidence rejects
-  // deadlines failing /^\d{4}-\d{2}-\d{2}$/ — only direct computePlan callers
-  // can. Pinned as CURRENT behaviour.)
+test('computePlan: an EMPTY-string deadline is ignored rather than hijacking the plan', () => {
+  // '' <= horizonEnd is lexicographically TRUE, so a typeof-only check let an
+  // unfilled form field win the DEADLINE band over genuinely weak topics and
+  // print "Your goal «X» was due on ." — a dangling date. planRecord now
+  // requires the same /^\d{4}-\d{2}-\d{2}$/ shape loadPlanEvidence filters on.
+  // (Filed as a defect in docs/HANDOFF.md and fixed here; the HTTP route could
+  // never trigger it, so this covers the direct-call path.)
   const hijack = computePlan([
     ev({ topic: 'weak', correct: 0, total: 10 }),
     ev({ topic: 'has-empty-deadline', correct: 9, total: 10, goal: { label: 'X', deadline: '' } }),
   ], 7, { now: NOW });
-  assert.equal(hijack.items[0].topic, 'has-empty-deadline', 'FILED DEFECT — empty deadline outranks a 0% topic');
-  assert.ok(hijack.summary.includes('Your goal «X» was due on .'),
-    `FILED DEFECT — broken summary text, was: ${hijack.summary}`);
-  // The reason path DOES defend (goalNote guards ''), so only summary is broken text.
+  assert.equal(hijack.items[0].topic, 'weak', 'an unfilled deadline must not outrank a 0% topic');
+  assert.ok(!hijack.summary.includes('was due on .'), `no dangling date, was: ${hijack.summary}`);
+
+  // Same guarantee standing alone: no goal, no goal sentence, no crash.
   const only = computePlan([ev({ correct: 9, total: 10, goal: { label: 'X', deadline: '' } })], 7, { now: NOW });
+  assert.ok(!only.summary.includes('«X»'), 'an empty deadline is not reported as a goal at all');
   assert.ok(!only.items[0].reason.includes('due on'), 'reason sentence never prints the dangling date');
+
+  // A real deadline still works — the guard must not reject valid input, and
+  // the tense has to track whether the date has passed.
+  const past = computePlan([ev({ correct: 9, total: 10, goal: { label: 'Exam', deadline: '2026-10-10' } })],
+    7, { now: NOW });
+  assert.ok(past.summary.includes('Your goal «Exam» was due on 2026-10-10.'),
+    `past deadline honoured, was: ${past.summary}`);
+  const future = computePlan([ev({ correct: 9, total: 10, goal: { label: 'Exam', deadline: '2026-10-20' } })],
+    7, { now: NOW });
+  assert.ok(future.summary.includes('Your goal «Exam» is due on 2026-10-20.'),
+    `future deadline honoured, was: ${future.summary}`);
 });
 
 test('computePlan: summary names the real counts — topics, nearest goal, due cards', () => {
@@ -561,11 +574,12 @@ test('computePlan: summary names the real counts — topics, nearest goal, due c
     `summary was: ${withGoals.summary}`);
 
   const singular = computePlan([ev({ correct: 0, total: 0, dueCards: 1 })], 7, { now: NOW });
-  // FILED DEFECT — see docs/HANDOFF.md: the noun is singularised but the verb
-  // is not, so the learner reads "1 flashcard are due". Pinned as current
-  // behaviour, not endorsed.
-  assert.ok(singular.summary.endsWith('1 flashcard are due for review.'),
+  // Singular agreement here too — see docs/HANDOFF.md, filed and fixed.
+  assert.ok(singular.summary.endsWith('1 flashcard is due for review.'),
     `summary was: ${singular.summary}`);
+  const plural = computePlan([ev({ correct: 0, total: 0, dueCards: 3 })], 7, { now: NOW });
+  assert.ok(plural.summary.endsWith('3 flashcards are due for review.'),
+    `summary was: ${plural.summary}`);
 });
 
 test('computePlan: byte-identical output for identical input (determinism)', () => {
