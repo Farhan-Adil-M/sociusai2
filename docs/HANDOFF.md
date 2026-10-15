@@ -1661,3 +1661,19 @@ Cross-agent communication channel. Append entries here; never edit another agent
 - **needed**: nothing in code. All three respond and are auth-guarded (verified by `tests/boot-wiring.test.js`, which probes them and labels them "extra route, not in API_CONTRACT.md").
 - **why**: the contract says every shipped endpoint is documented; these three are consumed by the frontend/extension but appear nowhere in it, so a client author reading only the contract would not know they exist. The contract's own rule is additive documentation — documenting them is a doc-only change, no version bump needed.
 - **status**: open
+
+### 2026-10-15  FROM: T9  TO: whoever owns `server/store/vectorStore.js` (400 blames "metadata" for every client-side validation failure — duplicate ids included)
+- **file**: `server/store/vectorStore.js` lines 367–370 (the `name === 'ChromaValueError'` branch of `chromaError`).
+- **symptom**: chromadb 3.x validates several things client-side and throws `ChromaValueError` for all of them (duplicate ids in one batch — `validateIDs`, bad `where` clause, bad `nResults`, oversized batch). `chromaError` maps **every** `ChromaValueError` to one fixed message: *"The vector store rejected the chunk metadata. Metadata values must be strings, numbers, booleans, or arrays of one type."* The status/code (400 `VECTOR_INVALID_INPUT`) are correct, but the message names the wrong input, so an operator hunts metadata problems that do not exist.
+- **reproduction**: `addChunks({ ids: ['x','x'], embeddings: [[1,0,0],[1,0,0]], documents: ['a','b'], metadatas: [{},{ }] , userId: 'user-a'})` → rejects with 400 `VECTOR_INVALID_INPUT` and the metadata message above; the real cause (printed by chromadb before our mapping, `Found duplicate IDs at …`) never reaches the log or the caller. Pinned by `tests/vector-store.test.js` ("deduplication: duplicate ids are rejected in-batch…", marked `// FILED DEFECT — see docs/HANDOFF.md`).
+- **severity**: low — error honesty / debuggability only; no data loss, no ownership impact (the batch is correctly rejected and stores nothing).
+- **suggested fix**: keep the branch but carry the cause, e.g. `new ApiError(400, 'VECTOR_INVALID_INPUT', 'The vector store rejected the request: ' + String(err?.message ?? err))` (the metadata-specific text can stay as the common case), or discriminate on the chromadb message (`duplicate ID` vs `metadata`).
+- **status**: open
+
+### 2026-10-15  FROM: T9  TO: whoever owns `server/store/vectorStore.js` (a non-array `sourceIds` silently widens the query instead of failing)
+- **file**: `server/store/vectorStore.js` line 227 (`Array.isArray(sourceIds) && sourceIds.length > 0 ? … : null`).
+- **symptom**: `queryChunks({ sourceIds: 'src_a', … })` (a caller typo — string instead of array) does not scope anything: the source filter is silently dropped and the caller receives the owner's **entire** library. Ownership is unaffected (the owner filter still applies), so this is wrong-scope, not cross-user leakage.
+- **reproduction**: seed two chunks in `src_a`, then `queryChunks({ embedding, nResults: 9, sourceIds: 'src_a', userId })` → returns both chunks and the request's `where` is `{ ownerId: userId }` (no `sourceId` clause). Pinned by `tests/vector-store.test.js` ("scoping is lenient: only a non-empty sourceIds ARRAY narrows the query (pinned)", marked `// FILED DEFECT — see docs/HANDOFF.md`).
+- **severity**: low — no live caller passes a bad shape today (`retrieval.validateSourceIds` rejects non-arrays before `retrieve` is called), but the store itself fails open on this input, which contradicts the repo's fail-fast rule for user input.
+- **suggested fix**: when `sourceIds !== undefined && !Array.isArray(sourceIds)` throw `new ApiError(400, 'VECTOR_INVALID_INPUT', 'sourceIds must be an array of source id strings.')` before building the filter.
+- **status**: open
