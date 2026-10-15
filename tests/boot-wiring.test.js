@@ -30,6 +30,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
@@ -504,4 +505,40 @@ test('boot smoke: fresh app on an ephemeral port reports healthy and shuts down 
       clearTimeout(timer);
     }
   });
+});
+
+/* ------------------------------------------------------ bundle traceability */
+
+test('route wiring: app.js uses STATIC imports only, so a bundler can trace every router', () => {
+  // Regression guard for an outage that was invisible from this repo: app.js
+  // used to load seven routers through `await import(modulePath)` — a COMPUTED
+  // specifier. A bundler cannot follow a computed specifier, so on Vercel none
+  // of the seven files were traced into the serverless function and every one
+  // of them returned 404 in production while working perfectly locally.
+  //
+  // What made it slow to spot: the catch logged "route not yet implemented —
+  // skipped", an accurate description of a missing FILE and a false one for a
+  // missing BUNDLE, so it pointed at the wrong thing. Locally nothing was
+  // wrong either, because in dev the files are read straight off disk.
+  //
+  // Comments are stripped first so this test does not trip over app.js's own
+  // explanation of the bug.
+  const appSrc = readFileSync(path.join(REPO_ROOT, 'server', 'app.js'), 'utf8');
+  const code = appSrc
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  const dynamic = [...code.matchAll(/\bimport\s*\(([^)]*)\)/g)]
+    .map((m) => `import(${m[1].trim().replace(/\s+/g, ' ')})`);
+  assert.deepEqual(dynamic, [],
+    'server/app.js must use static imports only — a computed specifier is invisible to the bundler');
+
+  // And each of the seven that broke must be both imported and mounted, so the
+  // guard fails loudly if someone moves one back behind a loader.
+  for (const name of ['adaptive', 'planner', 'advice', 'share', 'viewer', 'media', 'events']) {
+    assert.match(code, new RegExp(`import\\s*\\{\\s*${name}Router\\s*\\}\\s*from\\s*'\\./routes/${name}\\.js'`),
+      `routes/${name}.js must be a literal static import`);
+    assert.match(code, new RegExp(`app\\.use\\('/api/${name}',\\s*${name}Router\\(ctx\\)\\)`),
+      `/api/${name} must be mounted with its imported factory`);
+  }
 });

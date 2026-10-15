@@ -22,6 +22,13 @@ import { learnerRouter } from './routes/learner.js';
 import { decksRouter, flashcardsRouter } from './routes/decks.js';
 import { sessionsRouter } from './routes/sessions.js';
 import { profileRouter, onboardingRouter } from './routes/profile.js';
+import { adaptiveRouter } from './routes/adaptive.js';
+import { plannerRouter } from './routes/planner.js';
+import { adviceRouter } from './routes/advice.js';
+import { shareRouter } from './routes/share.js';
+import { viewerRouter } from './routes/viewer.js';
+import { mediaRouter } from './routes/media.js';
+import { eventsRouter } from './routes/events.js';
 import { resolveVectorStore } from './store/vectorProvider.js';
 
 const FRONTEND_DIR = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '../frontend');
@@ -95,52 +102,25 @@ function serveFrontend(app) {
   });
 }
 
-// --- Wave 4 route modules ---------------------------------------------------
-
-// These routers are owned by Wave 4 and do not exist yet. They are imported
-// dynamically, in a try/catch, so a missing module logs one line and startup
-// continues instead of crashing. Adding the file is the only step Wave 4 needs:
-// no edit to this file.
-const RESERVED_ROUTES = [
-  ['/api/adaptive', './routes/adaptive.js', 'adaptiveRouter'],
-  ['/api/planner', './routes/planner.js', 'plannerRouter'],
-  ['/api/advice', './routes/advice.js', 'adviceRouter'],
-  ['/api/share', './routes/share.js', 'shareRouter'],
-  ['/api/viewer', './routes/viewer.js', 'viewerRouter'],
-  ['/api/media', './routes/media.js', 'mediaRouter'],
-  ['/api/events', './routes/events.js', 'eventsRouter'],
-];
-
-// Report each missing route once per process; test runs create many app
-// instances and should not repeat the same line hundreds of times.
-const reportedMissingRoutes = new Set();
-
-async function mountReservedRoutes(app, ctx) {
-  for (const [mountPath, modulePath, exportName] of RESERVED_ROUTES) {
-    let factory;
-    try {
-      const mod = await import(modulePath);
-      factory = mod[exportName];
-    } catch (err) {
-      if (err?.code === 'ERR_MODULE_NOT_FOUND') {
-        if (!reportedMissingRoutes.has(mountPath)) {
-          reportedMissingRoutes.add(mountPath);
-          console.log(`[routes] route ${mountPath} not yet implemented — skipped`);
-        }
-        continue;
-      }
-      // The module exists but failed to load (or threw while importing): keep
-      // booting, but say so loudly — this is a real bug, not a wave gap.
-      console.error(`[routes] failed to load ${modulePath} for ${mountPath}: ${err?.message ?? err}`);
-      continue;
-    }
-    if (typeof factory !== 'function') {
-      console.error(`[routes] ${modulePath} does not export ${exportName}() — skipping ${mountPath}`);
-      continue;
-    }
-    app.use(mountPath, factory(ctx));
-  }
-}
+// --- more route modules ------------------------------------------------------
+//
+// These seven are mounted inline in createApp() below, like every other router
+// in this file. They used to be loaded through a try/catch using a VARIABLE
+// specifier — `await import(modulePath)` — which was reserved for a wave of
+// routers that had not been written yet.
+//
+// Two reasons that had to go once the files existed:
+//
+//   1. A bundler cannot follow a variable specifier. On Vercel these seven
+//      files were never traced into the serverless function, so all seven
+//      404'd in production while working perfectly locally — planner, advice,
+//      share, viewer, media, events and adaptive were all dead.
+//   2. The log line read "route not yet implemented — skipped", which is an
+//      accurate description of a missing FILE and a false one for a missing
+//      BUNDLE, so it actively hid the cause.
+//
+// Static imports fix both: the bundler sees them, and a genuinely missing
+// module now fails the boot loudly instead of serving a silent 404.
 
 // --- app factory ------------------------------------------------------------
 
@@ -176,7 +156,13 @@ export async function createApp({ db, ai, vector, auth } = {}) {
   app.use('/api/profile', profileRouter(ctx));
   app.use('/api/onboarding', onboardingRouter(ctx));
 
-  await mountReservedRoutes(app, ctx);
+  app.use('/api/adaptive', adaptiveRouter(ctx));
+  app.use('/api/planner', plannerRouter(ctx));
+  app.use('/api/advice', adviceRouter(ctx));
+  app.use('/api/share', shareRouter(ctx));
+  app.use('/api/viewer', viewerRouter(ctx));
+  app.use('/api/media', mediaRouter(ctx));
+  app.use('/api/events', eventsRouter(ctx));
 
   serveFrontend(app);
 
