@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/index.js": {
-      "maxDuration": 60,
+      "maxDuration": 120,
       "includeFiles": "{node_modules/pdf-parse/**,node_modules/pdfjs-dist/**,node_modules/@tesseract.js-data/eng/4.0.0/**,data/demo-seed.json}"
     }
   },
