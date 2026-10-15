@@ -116,6 +116,7 @@ function showInfo(message) {
   show(formError, false);
 }
 
+/** Both banners clear together: showing one hides the other. */
 function clearMessages() {
   showProblem('');
   showInfo('');
@@ -177,19 +178,15 @@ if (togglePassword && passwordInput) {
 
 /* ------------------------------------------------------ mode-dependent UI */
 
-function submitLabel() {
-  if (busy) return signupMode ? 'Creating account…' : 'Signing in…';
-  if (authMode !== 'supabase') return 'Continue';
-  return signupMode ? 'Create account' : 'Sign in';
-}
-
 function paintSubmit() {
   if (!submitBtn) return;
   // Disabled until the mode is known: the markup ships it disabled too, so a
   // JavaScript-off page can never submit, and a fast click before the boot
   // settles cannot post against a half-resolved mode.
   submitBtn.disabled = busy || !ready;
-  submitBtn.textContent = submitLabel();
+  if (busy) submitBtn.textContent = signupMode ? 'Creating account…' : 'Signing in…';
+  else if (authMode === 'supabase') submitBtn.textContent = signupMode ? 'Create account' : 'Sign in';
+  else submitBtn.textContent = 'Continue';
 }
 
 function renderSwitch() {
@@ -255,10 +252,8 @@ function nextTarget() {
   } catch {
     raw = '';
   }
-  if (!raw) return DEFAULT_APP_PATH;
-  if (!raw.startsWith('/') || raw.startsWith('//')) return DEFAULT_APP_PATH;
-  if (!/^\/[A-Za-z0-9._~/-]*$/.test(raw)) return DEFAULT_APP_PATH;
-  return raw;
+  const safe = raw.startsWith('/') && !raw.startsWith('//') && /^\/[A-Za-z0-9._~/-]*$/.test(raw);
+  return safe ? raw : DEFAULT_APP_PATH;
 }
 
 function goTo(path) {

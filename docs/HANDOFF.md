@@ -1627,3 +1627,23 @@ Cross-agent communication channel. Append entries here; never edit another agent
 - **needed**: nothing. It has no caller anywhere in the repo (frontend pages, components, `scripts/`, `tests/`, `extension/`).
 - **why**: it is a public export, so this zero-interface-change pass left it. If nobody wants it, deleting it removes one line and a second name for the same function.
 - **status**: open
+
+### 2026-10-15  FROM: R9  TO: any (two `readTopic` normalisers for the same payload — left alone on purpose)
+- **file**: `frontend/js/pages/dashboard.js` (`readTopic`, ~line 95) and `frontend/js/pages/progress.js` (`readTopic`, ~line 74)
+- **needed**: nothing changed. Both pages normalise the SAME `GET /api/learner/progress` `topics[]` entries (same honesty rule: numeric `masteryPercent` is the "measured" signal, `hasEvidence: false` → unassessed), but into different field names (`assessed`/`percent`/`levelLabel` vs `masteryPercent`/`unassessed`/`level`) and with different level handling (dashboard trusts the server's `levelLabel`; progress derives an integer `level` from `LEVELS`/`LEVEL_BY_LABEL`). The pages consume different shapes, so unifying means one shared normaliser with a page-specific projection — a job for whoever owns `frontend/js/components/`, not for a zero-interface-change page pass.
+- **why**: recording it so the next person sees the duplication is deliberate, not an oversight. Both copies carry the "unassessed ≠ 0%" comment; do not let a future edit drop either.
+- **status**: open
+
+### 2026-10-15  FROM: R9  TO: any (browser verification recipe for the list/dashboard pages)
+- **file**: `/tmp/opencode/r9/` (scratch, NOT in the repo — delete freely)
+- **needed**: nothing to change. The cheapest proof that a frontend restructure changed no DOM: two frozen SQLite snapshots (`empty.db`, `seeded.db` — the latter built by `bootstrap.mjs` + `seed-full.mjs`, which also answers one quiz 100% (assessed topic) and leaves one quiz unanswered (unassessed topic)), `boot.sh <snapshot>` to boot an isolated server on 3909 from a copy, `dump.mjs` (per-page `main` innerHTML + selector counts + console/page errors) and `interact2.mjs` (drives the real flows: reveal → grade → schedule strip, keyboard grades, library view/preview/organise/search/delete-confirm, dashboard panels, progress refresh) writing tagged logs. Run before and after and diff. Normalise three things that vary with the clock, not with the code: `formatRelative` strings (`N mins ago`), absolute `datetime="…"` attributes of events the harness itself wrote, and the mock fixtures' activity timestamps (`fixtures.js` generates them from `Date.now()` at load, line ~115).
+- **why**: `npm test` covers the server; these four pages' DOM was previously only eyeballed. The same harness re-proves any future edit in one command per scenario.
+- **status**: open
+
+### 2026-10-15T02:10Z  FROM: R10  TO: any
+- **file**: none (report only)
+- **needed**: nothing to apply. Recording what R10 verified so a later pass does not re-litigate it.
+- **why**: R10's restructuring pass on the four page modules + fixtures.js kept every value byte-identical and the suite is 483/483 with 0 console errors on all four pages in a real browser. Two findings worth knowing:
+  1. `frontend/js/mocks/fixtures.js` has **no `/api/events` route**. In `?mock=1` the activity page therefore always renders its error state ("Your activity could not be loaded.") — in both the original and the restructured file. That is a pre-existing demo-mode gap, not a regression; it is invisible on a real server, where the feed loads 36 seeded rows correctly (verified). Adding the route would mean inventing event rows, which the honesty rules forbid, so I left it alone.
+  2. The feed's live-region text and the relative timestamps are the only things that differ between two snapshots of the same page taken minutes apart; normalise them before diffing browser output.
+- **status**: applied

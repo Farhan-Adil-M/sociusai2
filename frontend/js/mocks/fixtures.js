@@ -106,10 +106,8 @@ function sessionWithCounts(session) {
 
 /** Throw SESSION_EMPTY when a session-scoped AI call has no material. */
 function assertSessionHasSources(sessionId) {
-  const session = sessionById(sessionId);
-  if (!session) throw httpError('SESSION_NOT_FOUND', 'That study session no longer exists.', 404);
-  const count = db.sources.filter((source) => source.sessionId === sessionId).length;
-  if (count === 0) {
+  const session = requireSession(sessionId);
+  if (db.sources.filter((source) => source.sessionId === sessionId).length === 0) {
     throw httpError('SESSION_EMPTY', `No material in «${session.title}» yet. Add a file or web page first.`, 400);
   }
 }
@@ -144,7 +142,7 @@ const MITOSIS_ANSWER = {
   citations: [
     citation({ sourceId: 'src_demo02', type: 'pptx', title: 'lecture-04-cells.pptx', location: { slide: 17 }, excerpt: 'Mitosis: one division, two identical diploid cells. Meiosis: two divisions, four unique haploid cells.', score: 0.84 }),
   ],
-  model: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+  model: CHAT_MODEL,
   needsContent: false,
 };
 
@@ -513,46 +511,6 @@ function patchProfile(body) {
 const submittedQuizzes = new Map(); // quizId → stored result (409 on repeat)
 const generatedQuizzes = new Map(); // quizId → { topic, questions }
 
-/** v1.1: a generated deck is persisted (log + cards), like the real backend. */
-function persistDeck(topic, cards, sessionId) {
-  const parent = sessionId ? sessionById(sessionId) : null;
-  const deckId = demoId('deck');
-  db.decks.unshift({
-    id: deckId,
-    topic,
-    sessionId,
-    category: parent ? parent.category : null,
-    cardCount: cards.length,
-    knownCount: 0,
-    reviewCount: 0,
-    createdAt: nowIso(),
-    lastReviewedAt: null,
-  });
-  db.deckCards.set(deckId, cards.map(deckCardRow(() => ({ status: 'new', reviewedAt: null }))));
-  return deckId;
-}
-
-/** Deterministic grading of one attempt — a string comparison against the
- *  stored key, exactly like the backend. */
-function gradeAttempt(generated, answers) {
-  let correct = 0;
-  const questions = generated.questions.map((question, index) => {
-    const yourChoiceId = answers[index].choiceId ?? null;
-    const correctChoiceId = correctIdFor(question);
-    const isCorrect = yourChoiceId === correctChoiceId;
-    if (isCorrect) correct += 1;
-    return {
-      index,
-      yourChoiceId,
-      correctChoiceId,
-      correct: isCorrect,
-      explanation: QUIZ_EXPLANATIONS[index],
-      citations: question.citations,
-    };
-  });
-  return { correct, questions };
-}
-
 export async function handleMock(path, { method = 'GET', body = {} } = {}) {
   await sleep(320);
   const [pathname, query = ''] = path.split('?');
@@ -635,9 +593,22 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
     }
     if (body.sessionId) assertSessionHasSources(body.sessionId);
     await sleep(500);
-    // v1.1: the deck is persisted (cards + scope), like the real backend.
     const cards = FLASHCARD_CARDS.slice(0, count);
-    const deckId = persistDeck(topic, cards, body.sessionId || null);
+    // v1.1: the deck is persisted (cards + scope), like the real backend.
+    const deckId = demoId('deck');
+    const parent = body.sessionId ? sessionById(body.sessionId) : null;
+    db.decks.unshift({
+      id: deckId,
+      topic,
+      sessionId: body.sessionId || null,
+      category: parent ? parent.category : null,
+      cardCount: cards.length,
+      knownCount: 0,
+      reviewCount: 0,
+      createdAt: nowIso(),
+      lastReviewedAt: null,
+    });
+    db.deckCards.set(deckId, cards.map(deckCardRow(() => ({ status: 'new', reviewedAt: null }))));
     return { topic, cards, deckId, sessionId: body.sessionId || null, model: 'nvidia/nemotron-3-super-120b-a12b' };
   }
 
@@ -677,7 +648,21 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
       throw httpError('VALIDATION_ERROR', 'Provide one answer per question, in order.', 400);
     }
 
-    const { correct, questions } = gradeAttempt(generated, answers);
+    let correct = 0;
+    const questions = generated.questions.map((question, index) => {
+      const yourChoiceId = answers[index].choiceId ?? null;
+      const correctChoiceId = correctIdFor(question);
+      const isCorrect = yourChoiceId === correctChoiceId;
+      if (isCorrect) correct += 1;
+      return {
+        index,
+        yourChoiceId,
+        correctChoiceId,
+        correct: isCorrect,
+        explanation: QUIZ_EXPLANATIONS[index],
+        citations: question.citations,
+      };
+    });
 
     const percent = Math.round((correct / total) * 100);
     const before = 0.6;
@@ -697,9 +682,7 @@ export async function handleMock(path, { method = 'GET', body = {} } = {}) {
   const sourceMatch = pathname.match(/^\/api\/sources\/([^/]+)$/);
   if (sourceMatch && method === 'PATCH') {
     const source = requireSource(sourceMatch[1]);
-    if (body.sessionId !== undefined && body.sessionId !== null && !sessionById(body.sessionId)) {
-      throw httpError('SESSION_NOT_FOUND', 'That study session no longer exists.', 404);
-    }
+    if (body.sessionId !== undefined && body.sessionId !== null) requireSession(body.sessionId);
     if (body.sessionId !== undefined) { source.sessionId = body.sessionId; source.orgSource = 'manual'; source.manualOverride = true; }
     if (body.title !== undefined) { source.title = String(body.title).trim(); source.manualOverride = true; }
     if (Array.isArray(body.tags)) { source.tags = body.tags.map((tag) => String(tag).trim()).filter(Boolean); source.manualOverride = true; }

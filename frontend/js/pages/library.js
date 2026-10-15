@@ -58,9 +58,11 @@ function sourceType(source) {
 }
 
 function typeMeta(type) {
-  if (TYPE_META[type]) return TYPE_META[type];
-  const label = type ? type.charAt(0).toUpperCase() + type.slice(1) : 'Source';
-  return { label, icon: 'file', badge: '' };
+  return TYPE_META[type] ?? {
+    label: type ? type.charAt(0).toUpperCase() + type.slice(1) : 'Source',
+    icon: 'file',
+    badge: '',
+  };
 }
 
 /* --------------------------------------------------------------- helpers ---- */
@@ -575,25 +577,17 @@ function openImport() {
   importPanel.scrollIntoView({ block: 'nearest' });
 }
 
-function closeImport() {
-  if (!importPanel) return;
-  importPanel.hidden = true;
-  importToggle?.setAttribute('aria-expanded', 'false');
-}
-
 function toggleImport() {
   if (!importPanel) return;
-  if (importPanel.hidden) openImport();
-  else closeImport();
+  if (importPanel.hidden) {
+    openImport();
+  } else {
+    importPanel.hidden = true;
+    importToggle?.setAttribute('aria-expanded', 'false');
+  }
 }
 
 /* -------------------------------------------------------------- wiring ------ */
-
-function hydrateIcons(root) {
-  root.querySelectorAll('[data-icon]').forEach((el) => {
-    el.innerHTML = icon(el.dataset.icon, { size: 16 });
-  });
-}
 
 function bindToolbar() {
   const applySearch = debounce(() => {
@@ -612,7 +606,10 @@ function bindToolbar() {
 
 async function main() {
   await mountShell({ page: 'library' });
-  hydrateIcons(document);
+  // Fill the static [data-icon] spans declared in library.html.
+  document.querySelectorAll('[data-icon]').forEach((el) => {
+    el.innerHTML = icon(el.dataset.icon, { size: 16 });
+  });
   bindToolbar();
 
   const params = new URLSearchParams(window.location.search);

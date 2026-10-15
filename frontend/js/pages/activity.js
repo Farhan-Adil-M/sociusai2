@@ -181,24 +181,12 @@ function eventRow(event) {
 
 /* ------------------------------------------------------------------ render */
 
-function controlsHtml() {
+function pageHeadHtml() {
   // The live/busy state is NOT baked into the markup: a re-render replaces the
   // controls, so paint() re-applies the current state to the new elements right
   // after every render (see setBusy). Baking `disabled` in here is what left
   // the Refresh button and the "show only" select permanently disabled after
   // the first load — found in the browser, not by any test.
-  return `<div class="page-head-actions">
-    <label class="sr-only" for="activity-filter">Show only</label>
-    <select class="select" id="activity-filter" data-activity-filter>
-      ${FILTERS.map((entry) => `<option value="${escapeHtml(entry.value)}"${entry.value === filter ? ' selected' : ''}>${escapeHtml(entry.label)}</option>`).join('')}
-    </select>
-    <button type="button" class="btn btn-secondary btn-sm" data-activity-refresh>
-      ${icon('refresh', { size: 14 })} Refresh
-    </button>
-  </div>`;
-}
-
-function pageHeadHtml() {
   return `<header class="page-head">
     <div>
       <p class="eyebrow">Study history</p>
@@ -207,7 +195,15 @@ function pageHeadHtml() {
         tutor questions and level changes. Each line is a real stored event; nothing here is
         guessed or filled in for you.</p>
     </div>
-    ${controlsHtml()}
+    <div class="page-head-actions">
+      <label class="sr-only" for="activity-filter">Show only</label>
+      <select class="select" id="activity-filter" data-activity-filter>
+        ${FILTERS.map((entry) => `<option value="${escapeHtml(entry.value)}"${entry.value === filter ? ' selected' : ''}>${escapeHtml(entry.label)}</option>`).join('')}
+      </select>
+      <button type="button" class="btn btn-secondary btn-sm" data-activity-refresh>
+        ${icon('refresh', { size: 14 })} Refresh
+      </button>
+    </div>
   </header>`;
 }
 
@@ -219,12 +215,6 @@ const CONTROLS = ['[data-activity-refresh]', '[data-activity-more]', '[data-acti
 // Remembering the selector BEFORE that happens is what lets the page hand focus
 // back afterwards, so a keyboard user never loses their place.
 let focusedControl = null;
-
-function currentControl() {
-  const active = document.activeElement;
-  if (!active || !root?.contains(active)) return null;
-  return CONTROLS.find((selector) => active.matches(selector)) ?? null;
-}
 
 function feedPanel(list, { more }) {
   const body = list.length === 0
@@ -276,16 +266,11 @@ function renderLoading() {
 
 /* -------------------------------------------------------------------- load */
 
-function queryString(cursor) {
-  const params = new URLSearchParams();
-  params.set('limit', String(PAGE_SIZE));
-  if (filter) params.set('type', filter);
-  if (cursor) params.set('cursor', cursor);
-  return params.toString();
-}
-
 function setBusy(busy) {
-  if (busy && focusedControl === null) focusedControl = currentControl();
+  if (busy && focusedControl === null) {
+    const active = document.activeElement;
+    if (active && root?.contains(active)) focusedControl = CONTROLS.find((selector) => active.matches(selector)) ?? null;
+  }
   loading = busy;
   root.setAttribute('aria-busy', busy ? 'true' : 'false');
   // The controls are re-created by every render, so the live state is applied
@@ -298,17 +283,12 @@ function setBusy(busy) {
     else node.removeAttribute('aria-busy');
   }
   if (!busy && focusedControl !== null) {
-    const selector = focusedControl;
-    focusedControl = null;
     // The control can go with the page it was on (the final "load older"
     // removes the button), so fall back to Refresh, which always exists.
+    const selector = focusedControl;
+    focusedControl = null;
     (root.querySelector(selector) ?? root.querySelector('[data-activity-refresh]'))?.focus();
   }
-}
-
-function showError(error, retry, title) {
-  root.setAttribute('aria-busy', 'false');
-  root.replaceChildren(errorState(error, retry, { title }));
 }
 
 async function load(reset = true) {
@@ -325,7 +305,12 @@ async function load(reset = true) {
   }
 
   try {
-    const data = await apiGet(`/api/events?${queryString(fromScratch ? null : nextCursor)}`);
+    // PAGE_SIZE, the active filter and the cursor, as one query string.
+    const params = new URLSearchParams();
+    params.set('limit', String(PAGE_SIZE));
+    if (filter) params.set('type', filter);
+    if (!fromScratch && nextCursor) params.set('cursor', nextCursor);
+    const data = await apiGet(`/api/events?${params.toString()}`);
     const page = Array.isArray(data?.events) ? data.events : [];
     const before = events.length;
     events = fromScratch ? page : events.concat(page);
@@ -336,8 +321,9 @@ async function load(reset = true) {
       : `${plural(events.length - before, 'older event')} loaded — ${plural(events.length, 'event')} in total.`);
   } catch (error) {
     if (events.length === 0) {
-      // Nothing on screen to keep: the whole panel becomes the error + retry.
-      showError(error, () => load(fromScratch), 'Could not load your activity');
+      // Nothing on screen to keep: the whole view becomes the error + retry.
+      root.setAttribute('aria-busy', 'false');
+      root.replaceChildren(errorState(error, () => load(fromScratch), { title: 'Could not load your activity' }));
       announce('Your activity could not be loaded.');
       return;
     }

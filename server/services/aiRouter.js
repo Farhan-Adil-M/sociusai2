@@ -270,11 +270,20 @@ async function requestEmbedding(model, texts, timeoutMs) {
     throw providerError(502, 'NIM_ERROR', `The embedding service returned ${items.length} vectors for ${texts.length} texts.`, RETRY_ONLY);
   }
   const vectors = new Array(texts.length);
+  const seen = new Set();
   for (const item of items) {
     const index = item?.index;
     if (!Number.isInteger(index) || index < 0 || index >= texts.length) {
       throw providerError(502, 'NIM_ERROR', 'The embedding service returned vectors in an unusable order.', RETRY_ONLY);
     }
+    // Uniqueness, not just range. The length check above does not imply a
+    // permutation: [index 0, index 0] passes it and leaves one slot empty, so
+    // a caller would get [[…], undefined] — one vector per text is the whole
+    // contract, and embeddings.js should not be the only thing that knows that.
+    if (seen.has(index)) {
+      throw providerError(502, 'NIM_ERROR', 'The embedding service returned the same vector position twice.', RETRY_ONLY);
+    }
+    seen.add(index);
     if (!Array.isArray(item.embedding) || item.embedding.length === 0) {
       throw providerError(502, 'NIM_ERROR', 'The embedding service returned an unusable vector.', RETRY_ONLY);
     }

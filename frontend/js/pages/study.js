@@ -106,10 +106,6 @@ function chipsHtml(topics) {
     .join('');
 }
 
-function starterChipsHtml() {
-  return `<div class="tutor-starters">${chipsHtml(STARTERS)}</div>`;
-}
-
 /* ---------------------------------------------------------- message markup */
 
 function userMessageHtml(question) {
@@ -117,14 +113,6 @@ function userMessageHtml(question) {
     <p class="msg-who sr-only">You asked</p>
     <div class="msg-body">${escapeHtml(question)}</div>
   </article>`;
-}
-
-function citationsHtml(citations) {
-  if (!Array.isArray(citations) || citations.length === 0) return '';
-  return `<div class="msg-citations">
-    <p class="msg-citations-label">Source passages — select one to read the excerpt</p>
-    <div class="citations">${citations.map(citationEl).join('')}</div>
-  </div>`;
 }
 
 function pendingHtml() {
@@ -149,7 +137,7 @@ function introHtml() {
       <p>Ask me anything about <strong>your material</strong>. I answer only from what you have added,
          and every answer shows the exact file and page it came from.</p>
     </div>
-    ${hasMaterial ? starterChipsHtml() : addAction}
+    ${hasMaterial ? `<div class="tutor-starters">${chipsHtml(STARTERS)}</div>` : addAction}
   </article>`;
 }
 
@@ -175,7 +163,12 @@ function answerHtml(data, question) {
   }
 
   const citations = Array.isArray(data.citations) ? data.citations : [];
-  const citationBlock = citationsHtml(citations);
+  const citationBlock = citations.length === 0
+    ? ''
+    : `<div class="msg-citations">
+    <p class="msg-citations-label">Source passages — select one to read the excerpt</p>
+    <div class="citations">${citations.map(citationEl).join('')}</div>
+  </div>`;
   const noCitations = citations.length === 0
     ? '<p class="msg-note">No passages were retrieved for this answer.</p>'
     : '';
@@ -312,19 +305,6 @@ function updateComposer() {
     : 'Ask a question about your material…';
 }
 
-function beginSending() {
-  sending = true;
-  if (sendLabel) sendLabel.textContent = 'Thinking…';
-  if (sendButton) sendButton.setAttribute('aria-busy', 'true');
-  updateComposer();
-}
-
-function endSending() {
-  sending = false;
-  if (sendLabel) sendLabel.textContent = 'Send';
-  if (sendButton) sendButton.removeAttribute('aria-busy');
-}
-
 /* -------------------------------------------------------------------- ask */
 
 /** The request body for the active scope. Session scope is enforced by the
@@ -342,7 +322,10 @@ async function ask(question, { echo = true } = {}) {
 
   if (echo) append(userMessageHtml(asked));
   const pending = append(pendingHtml());
-  beginSending();
+  sending = true;
+  if (sendLabel) sendLabel.textContent = 'Thinking…';
+  if (sendButton) sendButton.setAttribute('aria-busy', 'true');
+  updateComposer();
   if (input) input.value = '';
   updateComposer();
 
@@ -378,7 +361,9 @@ async function ask(question, { echo = true } = {}) {
       announce('The tutor could not answer.');
     }
   } finally {
-    endSending();
+    sending = false;
+    if (sendLabel) sendLabel.textContent = 'Send';
+    if (sendButton) sendButton.removeAttribute('aria-busy');
     updateComposer();
     scrollToEnd();
   }

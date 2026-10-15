@@ -216,19 +216,7 @@ function deckTile(deck) {
     : 'Not studied yet';
   // One decision — "is anything due?" — drives the badge and the study button,
   // so the two can never disagree about the same deck.
-  const status = due > 0
-    ? {
-      badge: `<span class="badge badge-info">${plural(due, 'card')} due</span>`,
-      variant: 'btn-primary',
-      label: `Study ${due}`,
-      disabled: '',
-    }
-    : {
-      badge: '<span class="badge badge-success">Caught up</span>',
-      variant: 'btn-secondary',
-      label: 'Nothing due',
-      disabled: 'disabled',
-    };
+  const dueNow = due > 0;
   return `<article class="card deck-card">
     <div class="deck-card__head">
       <h3 class="deck-card__title truncate" title="${escapeHtml(topic)}">${escapeHtml(topic)}</h3>
@@ -237,13 +225,15 @@ function deckTile(deck) {
     </div>
     <p class="deck-card__meta muted text-xs">${session}${plural(cards, 'card')} · ${known} known</p>
     <div class="cluster cluster-2">
-      ${status.badge}
+      ${dueNow
+        ? `<span class="badge badge-info">${plural(due, 'card')} due</span>`
+        : '<span class="badge badge-success">Caught up</span>'}
       <span class="text-xs muted">${reviewed}</span>
     </div>
     <div class="deck-card__actions">
-      <button type="button" class="btn btn-sm ${status.variant}"
-              data-study-deck="${escapeHtml(deck.id)}" ${status.disabled}>
-        ${status.label}
+      <button type="button" class="btn btn-sm ${dueNow ? 'btn-primary' : 'btn-secondary'}"
+              data-study-deck="${escapeHtml(deck.id)}" ${dueNow ? '' : 'disabled'}>
+        ${dueNow ? `Study ${due}` : 'Nothing due'}
       </button>
     </div>
   </article>`;
@@ -513,12 +503,11 @@ function exitStudy() {
 function renderSessionOptions() {
   const select = els.sessionSelect;
   const current = select.value;
-  select.innerHTML = [
-    '<option value="">All my material</option>',
-    ...state.sessions.map((session) => (
+  select.innerHTML = ['<option value="">All my material</option>']
+    .concat(state.sessions.map((session) => (
       `<option value="${escapeHtml(session.id)}">${escapeHtml(session.title)}</option>`
-    )),
-  ].join('');
+    )))
+    .join('');
   if ([...select.options].some((option) => option.value === current)) select.value = current;
 }
 

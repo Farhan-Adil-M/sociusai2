@@ -41,41 +41,26 @@ import {
 
 /* ------------------------------------------------------------------ mapping */
 
-// One icon per material type. ui.js owns the glyph set, so these map onto
-// names that exist there today; the plain-English label beside each row makes
-// the type unmistakable. New glyphs are requested in docs/HANDOFF.md rather
-// than pasted into this page (docx/youtube/image reuse book/slides/eye).
-const SOURCE_ICONS = {
-  pdf: 'file',
-  pptx: 'slides',
-  docx: 'book',
-  webpage: 'globe',
-  youtube: 'slides',
-  image: 'eye',
-};
-
-const SOURCE_LABELS = {
-  pdf: 'PDF',
-  pptx: 'Slides',
-  docx: 'Word document',
-  webpage: 'Web page',
-  youtube: 'Video',
-  image: 'Image',
+// One icon + plain-English label per material type. ui.js owns the glyph set,
+// so these map onto names that exist there today; the label beside each row
+// makes the type unmistakable. New glyphs are requested in docs/HANDOFF.md
+// rather than pasted into this page (docx/youtube/image reuse book/slides/eye).
+const SOURCE_TYPES = {
+  pdf: { icon: 'file', label: 'PDF' },
+  pptx: { icon: 'slides', label: 'Slides' },
+  docx: { icon: 'book', label: 'Word document' },
+  webpage: { icon: 'globe', label: 'Web page' },
+  youtube: { icon: 'slides', label: 'Video' },
+  image: { icon: 'eye', label: 'Image' },
 };
 
 // The server's levelLabel enum → a components.css badge variant and the words a
 // student reads. "unassessed" is deliberately NOT here: it is not a level.
-const LEVEL_BADGES = {
-  foundation: 'badge',
-  developing: 'badge-info',
-  proficient: 'badge-success',
-  advanced: 'badge-accent',
-};
-const LEVEL_NAMES = {
-  foundation: 'Foundation',
-  developing: 'Developing',
-  proficient: 'Proficient',
-  advanced: 'Advanced',
+const LEVELS = {
+  foundation: { badge: 'badge', name: 'Foundation' },
+  developing: { badge: 'badge-info', name: 'Developing' },
+  proficient: { badge: 'badge-success', name: 'Proficient' },
+  advanced: { badge: 'badge-accent', name: 'Advanced' },
 };
 
 const MAX_TOPICS = 6;
@@ -114,7 +99,7 @@ function readTopic(entry) {
   const numeric = Number(raw);
   const assessed = raw !== null && raw !== undefined && Number.isFinite(numeric);
   const percent = assessed ? Math.max(0, Math.min(100, Math.round(numeric))) : null;
-  const labelKey = entry && LEVEL_NAMES[entry.levelLabel] ? entry.levelLabel : null;
+  const labelKey = entry && LEVELS[entry.levelLabel] ? entry.levelLabel : null;
   return {
     topic: String((entry && entry.topic) || ''),
     assessed,
@@ -137,8 +122,10 @@ function countTopics(n) {
 function levelBadge(topic) {
   if (!topic.assessed) return '<span class="badge">Not assessed yet</span>';
   if (!topic.level || !topic.levelLabel) return '';
-  return `<span class="badge ${LEVEL_BADGES[topic.levelLabel]}">`
-    + `Level ${topic.level} · ${escapeHtml(LEVEL_NAMES[topic.levelLabel])}</span>`;
+  // topic.levelLabel is only ever set when LEVELS holds it (see readTopic).
+  const level = LEVELS[topic.levelLabel];
+  return `<span class="badge ${level.badge}">`
+    + `Level ${topic.level} · ${escapeHtml(level.name)}</span>`;
 }
 
 /** One snapshot row: topic name, level badge, mastery bar, evidence line. */
@@ -169,7 +156,7 @@ function topicRow(topic) {
 
 /** "PDF · 14 pages · 12 Oct 2026" — only the parts the server actually sent. */
 function sourceMeta(source) {
-  const parts = [SOURCE_LABELS[source.type] || 'Material'];
+  const parts = [SOURCE_TYPES[source.type]?.label || 'Material'];
   // `sizeLabel` is pre-formatted by the server, but the types that only Wave 4
   // can ingest (youtube, image) have no label rule yet and come back as
   // "null slides". Printing that would be noise, so it is dropped.
@@ -205,7 +192,7 @@ function nextStepReason(next, topic) {
     return `Nothing has been graded on this yet. The first quiz starts at ${difficulty} difficulty and sets the level.`;
   }
   const level = topic.level
-    ? `Level ${topic.level}${topic.levelLabel ? ` (${LEVEL_NAMES[topic.levelLabel].toLowerCase()})` : ''} — `
+    ? `Level ${topic.level}${topic.levelLabel ? ` (${LEVELS[topic.levelLabel].name.toLowerCase()})` : ''} — `
     : '';
   return `${level}${topic.percent}% mastery over ${plural(topic.total, 'answered question')}. `
     + `The next quiz runs at ${difficulty} difficulty.`;
@@ -446,7 +433,7 @@ function renderMaterials(sources) {
 
   const shown = sources.slice(0, MAX_SOURCES);
   const rows = shown.map((source) => `<div class="row-item">
-      <span class="row-icon">${icon(SOURCE_ICONS[source.type] || 'file', { size: 15 })}</span>
+      <span class="row-icon">${icon(SOURCE_TYPES[source.type]?.icon || 'file', { size: 15 })}</span>
       <span class="row-main">
         <span class="row-title truncate">${escapeHtml(source.title)}</span>
         <span class="row-meta">${escapeHtml(sourceMeta(source))}</span>
@@ -520,13 +507,12 @@ async function load() {
     renderProgress(progress);
     renderSummary(progress, sources);
   } else {
-    const retry = () => { load(); };
     setBusy('continue', false);
     setBusy('progress', false);
-    hosts.continue.replaceChildren(errorState(progressResult.reason, retry, {
+    hosts.continue.replaceChildren(errorState(progressResult.reason, load, {
       title: 'Could not load your next step',
     }));
-    hosts.progress.replaceChildren(errorState(progressResult.reason, retry, {
+    hosts.progress.replaceChildren(errorState(progressResult.reason, load, {
       title: 'Could not load your progress',
     }));
   }
@@ -535,7 +521,7 @@ async function load() {
     renderDue(due);
   } else {
     setBusy('due', false);
-    hosts.due.replaceChildren(errorState(dueResult.reason, () => { load(); }, {
+    hosts.due.replaceChildren(errorState(dueResult.reason, load, {
       title: 'Could not load your flashcards',
     }));
   }
@@ -546,7 +532,7 @@ async function load() {
     setBusy('materials', false);
     const wrapper = document.createElement('div');
     wrapper.className = 'panel-body';
-    wrapper.appendChild(errorState(sourcesResult.reason, () => { load(); }, {
+    wrapper.appendChild(errorState(sourcesResult.reason, load, {
       title: 'Could not load your material',
     }));
     hosts.materials.replaceChildren(wrapper);

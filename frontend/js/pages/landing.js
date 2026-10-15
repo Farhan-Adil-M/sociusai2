@@ -266,6 +266,4 @@ playHeroSequence();
 // requestIdleCallback is not in every browser (Safari only gained it recently);
 // a timeout of 1ms is the same "after the current paint" behaviour.
 const afterPaint = window.requestIdleCallback ?? ((callback) => window.setTimeout(callback, 1));
-afterPaint(() => {
-  upgradeCtaForSignedInUser();
-});
+afterPaint(upgradeCtaForSignedInUser);
